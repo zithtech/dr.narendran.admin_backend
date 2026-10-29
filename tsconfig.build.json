@@ -1,0 +1,19 @@
+{
+  /* Production build only. The root tsconfig.json is the typecheck config:
+     it covers tests, migrations and *.config.ts and emits nothing. This one
+     compiles just src/ into dist/.
+
+     `tsc` resolves the "@/*" path alias at type-check time but leaves the
+     specifier verbatim in the emitted JS, which Node cannot resolve. `tsc-alias`
+     runs immediately after and rewrites those to relative paths - that is why
+     the build script is `tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json`
+     and not just `tsc`. */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "coverage", "tests", "**/*.test.ts"]
+}

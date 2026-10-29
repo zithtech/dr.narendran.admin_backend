@@ -1,0 +1,75 @@
+import { Router } from 'express';
+
+import { appointmentsRouter } from '@/modules/appointments/appointments.routes.js';
+import { authRouter } from '@/modules/auth/auth.routes.js';
+import { chatRouter } from '@/modules/chat/chat.routes.js';
+import { doctorAvailabilityRouter } from '@/modules/doctor_availability/doctor_availability.routes.js';
+import { doctorsRouter } from '@/modules/doctors/doctors.routes.js';
+import { feedbackRouter } from '@/modules/feedback/feedback.routes.js';
+import { healthRouter } from '@/modules/health/health.routes.js';
+import { hospitalBranchesRouter } from '@/modules/hospital_branches/hospital_branches.routes.js';
+import { hospitalsRouter } from '@/modules/hospitals/hospitals.routes.js';
+import { inventoryRouter } from '@/modules/inventory/inventory.routes.js';
+import { labsRouter } from '@/modules/labs/labs.routes.js';
+import { labServicesRouter } from '@/modules/lab-services/lab-services.routes.js';
+import { labTestsRouter } from '@/modules/labTests/labTests.routes.js';
+import { linkedMedicalsRouter } from '@/modules/linked_medicals/linked_medicals.routes.js';
+import { masterRouter } from '@/modules/master/master.routes.js';
+import { medicineStrengthsRouter } from '@/modules/medicine_strengths/medicine_strengths.routes.js';
+import { medicinesRouter } from '@/modules/medicines/medicines.routes.js';
+import { notificationsRouter } from '@/modules/notifications/notification.routes.js';
+import { ordersRouter } from '@/modules/orders/orders.routes.js';
+import { patientsRouter } from '@/modules/patients/patients.routes.js';
+import { pharmacyRouter } from '@/modules/pharmacy/pharmacy.routes.js';
+import { pharmacyOrdersRouter } from '@/modules/pharmacy_orders/pharmacy_orders.routes.js';
+import { prescriptionTemplatesRouter } from '@/modules/prescription_templates/prescription_templates.routes.js';
+import { prescriptionsRouter } from '@/modules/prescriptions/prescriptions.routes.js';
+import { profileRouter } from '@/modules/profile/profile.routes.js';
+import { rbacRouter } from '@/modules/rbac/rbac.routes.js';
+import { clientPortalsRouter } from '@/modules/client_portals/client_portals.routes.js';
+import { labPortalRouter } from '@/modules/lab_portal/lab_portal.routes.js';
+import supportRouter from '@/modules/support/support.routes.js';
+import { proxyRouter } from '@/modules/proxy/proxy.routes.js';
+import { tenantRouter } from '@/modules/tenant/tenant.routes.js';
+import { userAccountsRouter } from '@/modules/user_accounts/user_accounts.routes.js';
+import { usersRouter } from '@/modules/users/users.routes.js';
+
+import { createApiRouter } from '@/shared/index.js';
+
+export const apiRouter = createApiRouter();
+
+apiRouter.use('/proxy', proxyRouter);
+apiRouter.use('/health', healthRouter);
+apiRouter.use('/auth', authRouter);
+apiRouter.use('/users', usersRouter);
+apiRouter.use('/patient-profile', profileRouter);
+apiRouter.use('/appointments', appointmentsRouter);
+apiRouter.use('/master', masterRouter);
+apiRouter.use('/tenant', tenantRouter);
+apiRouter.use('/hospitals', hospitalsRouter);
+apiRouter.use('/branches', hospitalBranchesRouter);
+apiRouter.use('/doctors', doctorsRouter);
+apiRouter.use('/doctor-availability', doctorAvailabilityRouter);
+apiRouter.use('/user-accounts', userAccountsRouter);
+apiRouter.use('/patients', patientsRouter);
+apiRouter.use('/prescriptions', prescriptionsRouter);
+apiRouter.use('/prescription-templates', prescriptionTemplatesRouter);
+apiRouter.use('/pharmacy', pharmacyRouter);
+apiRouter.use('/orders', ordersRouter);
+apiRouter.use('/pharmacy-orders', pharmacyOrdersRouter);
+apiRouter.use('/chat', chatRouter);
+apiRouter.use('/medicines', medicinesRouter);
+apiRouter.use('/medicine-strengths', medicineStrengthsRouter);
+apiRouter.use('/inventory', inventoryRouter);
+apiRouter.use('/labs', labsRouter);
+apiRouter.use('/lab-services', labServicesRouter);
+apiRouter.use('/lab-tests', labTestsRouter);
+apiRouter.use('/linked-medicals', linkedMedicalsRouter);
+apiRouter.use('/support', supportRouter);
+apiRouter.use('/notifications', notificationsRouter);
+apiRouter.use('/patient/feedback', feedbackRouter);
+
+apiRouter.use('/rbac', rbacRouter);
+apiRouter.use('/client-portals', clientPortalsRouter);
+apiRouter.use('/lab-portal', labPortalRouter);
+

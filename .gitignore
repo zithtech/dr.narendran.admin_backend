@@ -1,0 +1,23 @@
+node_modules/
+dist/
+coverage/
+
+# Real secrets live here and must never be committed. .env.example is the
+# tracked template.
+.env
+.env.*
+!.env.example
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.tsbuildinfo
+
+# Firebase & Google Cloud Service Account Credentials
+*firebase*.json
+*service-account*.json
+*-firebase-adminsdk-*.json
+

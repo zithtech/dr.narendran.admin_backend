@@ -1,0 +1,57 @@
+{
+  "compilerOptions": {
+    /* Node 22 supports all of ES2023 natively, so nothing needs downlevelling. */
+    "target": "es2023",
+    "lib": ["es2023"],
+
+    /* nodenext is the only correct choice for a "type": "module" package: it
+       makes TypeScript apply Node's real ESM resolution rules, which means
+       relative imports must carry a .js extension. That feels odd in a .ts
+       file, but it is what actually runs. */
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    /* No `baseUrl` - deprecated in TS 6, removed in TS 7. Without it, `paths`
+       resolve relative to this file, which is what we want. Note that
+       `tsc` does NOT rewrite these aliases on emit; see tsconfig.build.json. */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    /* --- Correctness ------------------------------------------------------ */
+    "strict": true,
+    /* Indexing an array/record yields `T | undefined`. Catches the classic
+       `rows[0].id` crash when a query returns no rows. */
+    "noUncheckedIndexedAccess": true,
+    /* `{a?: string}` stops being assignable from `{a: undefined}`, so an
+       optional field is either absent or a real value - which is what the
+       COALESCE-based partial update in users.repository relies on. */
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Imports are emitted exactly as written, so `import type` is required for
+       type-only imports. Prevents a type-only import from surviving into the
+       emitted JS and causing a runtime "module not found". */
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    "sourceMap": true,
+    "declaration": false,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "migrations/**/*.ts",
+    "migrations-tenant/**/*.ts",
+    "*.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", "coverage"]
+}

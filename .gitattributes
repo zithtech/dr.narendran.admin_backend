@@ -1,0 +1,15 @@
+# Normalize all text files to LF in the repository.
+# Without this, core.autocrlf=true on Windows machines rewrites shell scripts
+# with CRLF, which makes them unrunnable on Linux/macOS CI and dev machines.
+* text=auto eol=lf
+
+# The Husky hook is executed by sh; CRLF would make it fail to run.
+.husky/*      text eol=lf
+*.sh          text eol=lf
+
+# Windows-only scripts must stay CRLF.
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+
+# Generated files: collapse in diffs and exclude from language stats.
+pnpm-lock.yaml  linguist-generated=true -diff

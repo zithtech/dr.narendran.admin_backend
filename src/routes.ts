@@ -28,7 +28,7 @@ import { profileRouter } from '@/modules/profile/profile.routes.js';
 import { rbacRouter } from '@/modules/rbac/rbac.routes.js';
 import { clientPortalsRouter } from '@/modules/client_portals/client_portals.routes.js';
 import { labPortalRouter } from '@/modules/lab_portal/lab_portal.routes.js';
-import supportRouter from '@/modules/support/support.routes.js';
+import supportRouter, { adminSupportRouter } from '@/modules/support/support.routes.js';
 import { proxyRouter } from '@/modules/proxy/proxy.routes.js';
 import { tenantRouter } from '@/modules/tenant/tenant.routes.js';
 import { userAccountsRouter } from '@/modules/user_accounts/user_accounts.routes.js';
@@ -66,10 +66,13 @@ apiRouter.use('/lab-services', labServicesRouter);
 apiRouter.use('/lab-tests', labTestsRouter);
 apiRouter.use('/linked-medicals', linkedMedicalsRouter);
 apiRouter.use('/support', supportRouter);
-apiRouter.use('/notifications', notificationsRouter);
+apiRouter.use('/articles', supportRouter);
+apiRouter.use('/admin/support', adminSupportRouter);
+apiRouter.use('/admin/orders', ordersRouter);
 apiRouter.use('/patient/feedback', feedbackRouter);
 
 apiRouter.use('/rbac', rbacRouter);
 apiRouter.use('/client-portals', clientPortalsRouter);
 apiRouter.use('/lab-portal', labPortalRouter);
+
 

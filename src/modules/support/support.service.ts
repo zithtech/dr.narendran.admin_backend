@@ -1,4 +1,20 @@
 import { pool } from '@/db/pool.js';
+import { ForbiddenError, NotFoundError, ValidationError } from '@/http/errors.js';
+import { logger } from '@/lib/logger.js';
+import { notificationService } from '@/modules/notifications/notification.service.js';
+
+import { supportAIService } from './support.ai.service.js';
+import { supportRepository } from './support.repository.js';
+import type {
+  SupportAgent,
+  SupportKnowledgeArticle,
+  SupportMetrics,
+  SupportTicket,
+  SupportTicketAuditLog,
+  SupportTicketMessage,
+  TicketPriority,
+  TicketStatus,
+} from './support.types.js';
 
 export interface FAQItem {
   id: string;
@@ -100,8 +116,8 @@ const DEFAULT_FAQS: FAQItem[] = [
       'Go to Help & Support > Report an Issue, enter the subject and describe the issue in detail. A support ticket will automatically be created.',
   },
 ];
-
 export class SupportService {
+  // ── Backward-Compatible Legacy Methods ─────────────────────────────────────
   getFAQs(category?: string): FAQItem[] {
     if (category) {
       return DEFAULT_FAQS.filter(
@@ -332,11 +348,7 @@ export class SupportService {
   /* ---------------- Support Tickets & Legal ---------------- */
 
   async getSupportTickets(userId: string) {
-    const { rows } = await pool.query(
-      'SELECT * FROM support_tickets WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId],
-    );
-    return rows;
+    return supportRepository.findTicketsByUserId(userId);
   }
 
   async getSupportTicketById(ticketId: string, userId?: string) {
@@ -367,18 +379,618 @@ export class SupportService {
     return rows[0];
   }
 
-  async createSupportTicket(
+  async createSupportTicket(userId: string, userType: string, subject: string, message: string) {
+    return this.createTicket(userId, userType, { subject, message });
+  }
+
+  // ── Patient Ticket Operations ──────────────────────────────────────────────
+
+  async createTicket(
     userId: string,
     userType: string,
-    subject: string,
+    data: {
+      subject: string;
+      message?: string | undefined;
+      description?: string | undefined;
+      category?: string | undefined;
+      priority?: TicketPriority | undefined;
+      relatedEntityType?: string | null | undefined;
+      relatedEntityId?: string | null | undefined;
+      aiConversationId?: string | null | undefined;
+    },
+  ): Promise<SupportTicket> {
+    const finalMessage = data.message || data.description || '';
+
+    const ticket = await supportRepository.createTicket({
+      userId,
+      userType,
+      subject: data.subject,
+      message: finalMessage,
+      category: data.category,
+      priority: data.priority,
+      relatedEntityType: data.relatedEntityType,
+      relatedEntityId: data.relatedEntityId,
+      aiConversationId: data.aiConversationId,
+    });
+
+    // Initial message in thread
+    await supportRepository.createTicketMessage({
+      ticketId: ticket.id,
+      senderType: 'PATIENT',
+      senderId: userId,
+      senderName: 'Patient',
+      messageType: 'MESSAGE',
+      message: finalMessage,
+    });
+
+    // Link AI conversation if provided
+    if (data.aiConversationId) {
+      await supportRepository.linkAiConversationToTicket(data.aiConversationId, ticket.id);
+    }
+
+    // Record audit log
+    await supportRepository.createAuditLog({
+      ticketId: ticket.id,
+      actorId: userId,
+      action: 'CREATED',
+      newValue: {
+        ticket_number: ticket.ticket_number,
+        subject: ticket.subject,
+        category: ticket.category,
+      },
+    });
+
+    // Dispatch in-app notification to patient
+    void Promise.resolve(
+      notificationService?.sendToUser(
+        userId,
+        {
+          type: 'SUPPORT_TICKET_UPDATE',
+          title: `Ticket Created (${ticket.ticket_number})`,
+          body: `We have received your support request: "${ticket.subject.slice(0, 50)}". Our clinic care team will respond shortly.`,
+          data: {
+            ticketId: ticket.id,
+            ticketNumber: ticket.ticket_number,
+          },
+        },
+        { saveInApp: true, appType: 'PATIENT' },
+      ),
+    ).catch(err => logger.warn({ err, ticketId: ticket.id }, 'Failed to dispatch ticket creation notification'));
+
+    return ticket;
+  }
+
+  async getPatientTickets(userId: string): Promise<SupportTicket[]> {
+    return supportRepository.findTicketsByUserId(userId);
+  }
+
+  async getPatientTicketDetails(
+    ticketId: string,
+    userId: string,
+  ): Promise<{ ticket: SupportTicket; messages: SupportTicketMessage[] }> {
+    const ticket = await supportRepository.findTicketById(ticketId, userId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found or access denied');
+    }
+
+    // Strictly exclude internal staff notes for patient view!
+    const messages = await supportRepository.findMessagesByTicketId(ticketId, false);
+    return { ticket, messages };
+  }
+
+  async addPatientMessage(
+    ticketId: string,
+    userId: string,
     message: string,
+  ): Promise<SupportTicketMessage> {
+    const ticket = await supportRepository.findTicketById(ticketId, userId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found or access denied');
+    }
+
+    if (ticket.status === 'CLOSED') {
+      throw new ValidationError('Cannot reply to a closed ticket.');
+    }
+
+    const newMessage = await supportRepository.createTicketMessage({
+      ticketId,
+      senderType: 'PATIENT',
+      senderId: userId,
+      senderName: 'Patient',
+      messageType: 'MESSAGE',
+      message,
+    });
+
+    // If ticket was waiting for patient or resolved, transition back to IN_PROGRESS
+    if (ticket.status === 'WAITING_FOR_PATIENT' || ticket.status === 'RESOLVED') {
+      await supportRepository.updateTicket(ticketId, { status: 'IN_PROGRESS' });
+      await supportRepository.createAuditLog({
+        ticketId,
+        actorId: userId,
+        action: 'STATUS_CHANGED',
+        oldValue: { status: ticket.status },
+        newValue: { status: 'IN_PROGRESS', reason: 'Patient reply received' },
+      });
+    }
+
+    return newMessage;
+  }
+
+  async reopenTicket(ticketId: string, userId: string): Promise<SupportTicket> {
+    const ticket = await supportRepository.findTicketById(ticketId, userId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found or access denied');
+    }
+
+    if (ticket.status !== 'RESOLVED') {
+      throw new ValidationError('Only resolved tickets can be reopened.');
+    }
+
+    const updated = await supportRepository.updateTicket(ticketId, {
+      status: 'OPEN',
+      resolvedAt: null,
+    });
+
+    await supportRepository.createTicketMessage({
+      ticketId,
+      senderType: 'SYSTEM',
+      senderName: 'System',
+      messageType: 'SYSTEM_EVENT',
+      message: 'Ticket reopened by patient.',
+    });
+
+    await supportRepository.createAuditLog({
+      ticketId,
+      actorId: userId,
+      action: 'REOPENED',
+      oldValue: { status: 'RESOLVED' },
+      newValue: { status: 'OPEN' },
+    });
+
+    return updated!;
+  }
+
+  // ── AI Conversational Support ──────────────────────────────────────────────
+
+  async startAiConversation(
+    userId: string,
+    contextType?: string | null,
+    contextEntityId?: string | null,
   ) {
-    const { rows } = await pool.query(
-      `INSERT INTO support_tickets (user_id, user_type, subject, message)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [userId, userType, subject, message],
+    return supportRepository.createAiConversation({
+      userId,
+      contextType: contextType || undefined,
+      contextEntityId: contextEntityId || undefined,
+    });
+  }
+
+  async getAiConversation(conversationId: string, userId: string) {
+    const conv = await supportRepository.findAiConversationById(conversationId, userId);
+    if (!conv) {
+      throw new NotFoundError('Conversation not found');
+    }
+    const messages = await supportRepository.findAiMessagesByConversationId(conversationId);
+    return { conversation: conv, messages };
+  }
+
+  async sendAiMessage(
+    userId: string,
+    conversationId: string,
+    messageText: string,
+  ) {
+    const conv = await supportRepository.findAiConversationById(conversationId, userId);
+    if (!conv) {
+      throw new NotFoundError('Conversation not found');
+    }
+
+    // 1. Record patient turn
+    await supportRepository.createAiMessage({
+      conversationId,
+      senderType: 'PATIENT',
+      message: messageText,
+    });
+
+    // 2. Process with AI Service
+    const aiResponse = await supportAIService.processPatientMessage(
+      userId,
+      messageText,
+      conv.context_type,
+      conv.context_entity_id,
     );
-    return rows[0];
+
+    // 3. Record assistant turn
+    const sourceIds = aiResponse.relatedArticles.map(a => a.id);
+    const assistantMessage = await supportRepository.createAiMessage({
+      conversationId,
+      senderType: 'ASSISTANT',
+      message: aiResponse.answer,
+      sourceArticleIds: sourceIds,
+      suggestedActions: aiResponse.suggestedActions,
+    });
+
+    return {
+      messageId: assistantMessage.id,
+      conversationId,
+      answer: aiResponse.answer,
+      reply: aiResponse.answer,
+      suggestedQuestions: aiResponse.suggestedQuestions,
+      suggestedActions: aiResponse.suggestedActions,
+      relatedArticles: aiResponse.relatedArticles,
+      requiresHumanSupport: aiResponse.requiresHumanSupport,
+      suggestedCategory: aiResponse.suggestedCategory,
+      createdAt: assistantMessage.created_at,
+    };
+  }
+
+  // ── Admin Workspace Operations ─────────────────────────────────────────────
+
+  async getAdminTickets(filters: {
+    status?: string | undefined;
+    category?: string | undefined;
+    priority?: string | undefined;
+    assignedTo?: string | undefined;
+    search?: string | undefined;
+    page?: number | undefined;
+    limit?: number | undefined;
+  }) {
+    return supportRepository.listTicketsForAdmin({
+      status: filters.status,
+      category: filters.category,
+      priority: filters.priority,
+      assignedTo: filters.assignedTo,
+      search: filters.search,
+      page: filters.page,
+      limit: filters.limit,
+    });
+  }
+
+  async getAdminTicketDetails(ticketId: string): Promise<{
+    ticket: SupportTicket;
+    messages: SupportTicketMessage[];
+    auditLogs: SupportTicketAuditLog[];
+    aiConversation?: unknown;
+  }> {
+    const ticket = await supportRepository.findTicketById(ticketId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found');
+    }
+
+    // Admins see all messages including internal staff notes
+    const messages = await supportRepository.findMessagesByTicketId(ticketId, true);
+    const auditLogs = await supportRepository.findAuditLogsByTicketId(ticketId);
+
+    let aiConversation = null;
+    if (ticket.ai_conversation_id) {
+      const conv = await supportRepository.findAiConversationById(ticket.ai_conversation_id);
+      if (conv) {
+        const aiMsgs = await supportRepository.findAiMessagesByConversationId(conv.id);
+        aiConversation = { ...conv, messages: aiMsgs };
+      }
+    }
+
+    return { ticket, messages, auditLogs, aiConversation };
+  }
+
+  async updateTicketProperties(
+    ticketId: string,
+    adminId: string,
+    updates: {
+      status?: TicketStatus | undefined;
+      priority?: TicketPriority | undefined;
+      category?: string | undefined;
+      assignedTo?: string | null | undefined;
+      resolutionNotes?: string | null | undefined;
+    },
+  ): Promise<SupportTicket> {
+    const existing = await supportRepository.findTicketById(ticketId);
+    if (!existing) {
+      throw new NotFoundError('Ticket not found');
+    }
+
+    // Validate assignedTo if provided
+    if (updates.assignedTo !== undefined && updates.assignedTo !== null) {
+      const agent = await supportRepository.findAdminUserById(updates.assignedTo);
+      if (agent?.status !== 'ACTIVE') {
+        throw new ValidationError('Selected support agent does not exist or is inactive.');
+      }
+    }
+
+    const resolvedAt = updates.status === 'RESOLVED' ? new Date() : (updates.status ? null : undefined);
+    const closedAt = updates.status === 'CLOSED' ? new Date() : (updates.status ? null : undefined);
+
+    const updated = await supportRepository.updateTicket(ticketId, {
+      status: updates.status,
+      priority: updates.priority,
+      category: updates.category,
+      assignedTo: updates.assignedTo,
+      resolutionNotes: updates.resolutionNotes,
+      resolvedAt: resolvedAt !== undefined ? resolvedAt : undefined,
+      closedAt: closedAt !== undefined ? closedAt : undefined,
+    });
+
+    // Record audit log
+    await supportRepository.createAuditLog({
+      ticketId,
+      actorId: adminId,
+      action: 'PROPERTIES_UPDATED',
+      oldValue: {
+        status: existing.status,
+        priority: existing.priority,
+        category: existing.category,
+        assigned_to: existing.assigned_to,
+      },
+      newValue: {
+        status: updated?.status,
+        priority: updated?.priority,
+        category: updated?.category,
+        assigned_to: updated?.assigned_to,
+      },
+    });
+
+    // Notify patient if resolved or closed
+    if (updates.status === 'RESOLVED' && existing.status !== 'RESOLVED') {
+      void Promise.resolve(
+        notificationService?.sendToUser(
+          existing.user_id,
+          {
+            type: 'SUPPORT_TICKET_UPDATE',
+            title: `Ticket Resolved (${existing.ticket_number})`,
+            body: `Your support ticket has been resolved by clinic staff: "${existing.subject}". Tap to review resolution.`,
+            data: {
+              ticketId: existing.id,
+              ticketNumber: existing.ticket_number,
+              status: 'RESOLVED',
+            },
+          },
+          { saveInApp: true, appType: 'PATIENT' },
+        ),
+      ).catch(err => logger.warn({ err }, 'Failed to send resolution notification'));
+    }
+
+    return updated!;
+  }
+
+  async assignTicket(ticketId: string, adminId: string, assignedTo: string | null): Promise<SupportTicket> {
+    const ticket = await supportRepository.findTicketById(ticketId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found');
+    }
+
+    let agentName = 'Unassigned';
+    if (assignedTo) {
+      const agent = await supportRepository.findAdminUserById(assignedTo);
+      if (!agent) {
+        throw new ValidationError('Selected support agent does not exist.');
+      }
+      if (agent.status !== 'ACTIVE') {
+        throw new ValidationError('Cannot assign ticket to an inactive agent account.');
+      }
+      agentName = agent.name || agent.username;
+    }
+
+    const updated = await supportRepository.updateTicket(ticketId, {
+      assignedTo,
+    });
+
+    await supportRepository.createTicketMessage({
+      ticketId,
+      senderType: 'SYSTEM',
+      senderName: 'System',
+      messageType: 'SYSTEM_EVENT',
+      message: `Ticket assigned to ${agentName}.`,
+    });
+
+    await supportRepository.createAuditLog({
+      ticketId,
+      actorId: adminId,
+      action: 'ASSIGNED',
+      oldValue: { assigned_to: ticket.assigned_to },
+      newValue: { assigned_to: assignedTo, agent_name: agentName },
+    });
+
+    return updated!;
+  }
+
+  async addAdminReply(
+    ticketId: string,
+    adminId: string,
+    adminName: string,
+    message: string,
+    statusChange?: TicketStatus,
+  ): Promise<SupportTicketMessage> {
+    const ticket = await supportRepository.findTicketById(ticketId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found');
+    }
+
+    const newMsg = await supportRepository.createTicketMessage({
+      ticketId,
+      senderType: 'SUPPORT_AGENT',
+      senderId: adminId,
+      senderName: adminName,
+      messageType: 'MESSAGE',
+      message,
+    });
+
+    if (statusChange) {
+      await supportRepository.updateTicket(ticketId, {
+        status: statusChange,
+        resolvedAt: statusChange === 'RESOLVED' ? new Date() : (statusChange ? null : undefined),
+        closedAt: statusChange === 'CLOSED' ? new Date() : (statusChange ? null : undefined),
+      });
+
+      await supportRepository.createAuditLog({
+        ticketId,
+        actorId: adminId,
+        action: 'STATUS_CHANGED',
+        oldValue: { status: ticket.status },
+        newValue: { status: statusChange },
+      });
+    }
+
+    // Dispatch notification to patient
+    void Promise.resolve(
+      notificationService?.sendToUser(
+        ticket.user_id,
+        {
+          type: 'SUPPORT_TICKET_UPDATE',
+          title: `Support Reply (${ticket.ticket_number})`,
+          body: `Dr. Narendran Clinic Support replied: "${message.slice(0, 80)}"`,
+          data: {
+            ticketId: ticket.id,
+            ticketNumber: ticket.ticket_number,
+          },
+        },
+        { saveInApp: true, appType: 'PATIENT' },
+      ),
+    ).catch(err => logger.warn({ err }, 'Failed to dispatch reply notification'));
+
+    return newMsg;
+  }
+
+  async addInternalNote(
+    ticketId: string,
+    adminId: string,
+    adminName: string,
+    note: string,
+  ): Promise<SupportTicketMessage> {
+    const ticket = await supportRepository.findTicketById(ticketId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found');
+    }
+
+    const newNote = await supportRepository.createTicketMessage({
+      ticketId,
+      senderType: 'SUPPORT_AGENT',
+      senderId: adminId,
+      senderName: adminName,
+      messageType: 'INTERNAL_NOTE',
+      message: note,
+    });
+
+    await supportRepository.createAuditLog({
+      ticketId,
+      actorId: adminId,
+      action: 'NOTE_ADDED',
+      newValue: { note_preview: note.slice(0, 60) },
+    });
+
+    return newNote;
+  }
+
+  async generateAiSummary(ticketId: string) {
+    const ticket = await supportRepository.findTicketById(ticketId);
+    if (!ticket) {
+      throw new NotFoundError('Ticket not found');
+    }
+
+    let aiMessages: { sender_type: string; message: string }[] = [];
+    if (ticket.ai_conversation_id) {
+      const conv = await supportRepository.findAiConversationById(ticket.ai_conversation_id);
+      if (conv) {
+        const msgs = await supportRepository.findAiMessagesByConversationId(conv.id);
+        aiMessages = msgs.map(m => ({ sender_type: m.sender_type, message: m.message }));
+      }
+    }
+
+    return supportAIService.generateTicketSummary(
+      ticket.subject,
+      ticket.message,
+      aiMessages,
+    );
+  }
+
+  async getAdminMetrics(): Promise<SupportMetrics> {
+    return supportRepository.getSupportMetrics();
+  }
+
+  async getActiveAgents(): Promise<SupportAgent[]> {
+    return supportRepository.listActiveSupportAgents();
+  }
+
+  // ── Knowledge Base Management ──────────────────────────────────────────────
+
+  getCategories() {
+    return [
+      { id: 'APPOINTMENTS', title: 'Appointments & Rescheduling', icon: 'calendar', count: 2 },
+      { id: 'PRESCRIPTIONS', title: 'Prescriptions & Medical Records', icon: 'file-text', count: 1 },
+      { id: 'PHARMACY_ORDERS', title: 'Pharmacy & Medicine Orders', icon: 'pill', count: 2 },
+      { id: 'PAYMENTS_BILLING', title: 'Payments, Refunds & Billing', icon: 'credit-card', count: 1 },
+      { id: 'ACCOUNT_LOGIN', title: 'Account, Login & Profile', icon: 'user', count: 1 },
+      { id: 'TECHNICAL_ISSUES', title: 'Technical & App Settings', icon: 'settings', count: 1 },
+      { id: 'GENERAL_QUERY', title: 'General Clinic Inquiries', icon: 'help-circle', count: 0 },
+    ];
+  }
+
+  async getPublishedArticles(category?: string, query?: string): Promise<SupportKnowledgeArticle[]> {
+    return supportRepository.listPublishedArticles(category, query);
+  }
+
+  async getArticleDetail(idOrSlug: string): Promise<SupportKnowledgeArticle> {
+    const article = await supportRepository.findArticleByIdOrSlug(idOrSlug);
+    if (!article) {
+      throw new NotFoundError('Article');
+    }
+    return article;
+  }
+
+  async submitArticleFeedback(articleId: string, userId: string, isHelpful: boolean) {
+    const article = await supportRepository.findArticleByIdOrSlug(articleId);
+    if (!article) {
+      throw new NotFoundError('Article');
+    }
+    return supportRepository.recordArticleFeedback(article.id, userId, isHelpful);
+  }
+
+  async getAllArticlesAdmin(): Promise<SupportKnowledgeArticle[]> {
+    return supportRepository.listAllArticlesForAdmin();
+  }
+
+  async createArticle(adminId: string, data: {
+    title: string;
+    slug?: string | undefined;
+    category: string;
+    content: string;
+    keywords?: string[] | undefined;
+    isFaq?: boolean | undefined;
+    status?: string | undefined;
+  }): Promise<SupportKnowledgeArticle> {
+    return supportRepository.createArticle({ ...data, createdBy: adminId });
+  }
+
+  async updateArticle(adminId: string, id: string, data: {
+    title?: string | undefined;
+    slug?: string | undefined;
+    category?: string | undefined;
+    content?: string | undefined;
+    keywords?: string[] | undefined;
+    isFaq?: boolean | undefined;
+    status?: string | undefined;
+  }): Promise<SupportKnowledgeArticle> {
+    const existing = await supportRepository.findArticleByIdOrSlug(id);
+    if (!existing) {
+      throw new NotFoundError('Article');
+    }
+    const updated = await supportRepository.updateArticle(existing.id, {
+      title: data.title,
+      slug: data.slug,
+      category: data.category,
+      content: data.content,
+      keywords: data.keywords,
+      isFaq: data.isFaq,
+      status: data.status,
+      updatedBy: adminId,
+    });
+    return updated!;
+  }
+
+  async deleteArticle(id: string): Promise<{ success: boolean }> {
+    const existing = await supportRepository.findArticleByIdOrSlug(id);
+    if (!existing) {
+      throw new NotFoundError('Article');
+    }
+    await supportRepository.deleteArticle(existing.id);
+    return { success: true };
   }
 
   async updateSupportTicketStatus(ticketId: string, status: string) {

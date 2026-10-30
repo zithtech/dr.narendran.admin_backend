@@ -34,6 +34,7 @@ export interface CreateDoctorInput {
   clinic_address?: string | null;
   years_of_experience?: number | null;
   profile_image_url?: string | null;
+  podcast_url?: string | null;
   is_active?: boolean | null;
 }
 
@@ -69,6 +70,7 @@ export interface FormattedDoctorInfo {
   phone?: string;
   email?: string;
   profile_image_url?: string | null;
+  podcast_url?: string | null;
   hospitals: DoctorHospitalInfo[];
 
   specialization?: string;
@@ -137,6 +139,7 @@ export function formatDoctorInfo(row: any, hospitals: DoctorHospitalInfo[] = [])
     phone: row.phone || undefined,
     email: row.email || undefined,
     profile_image_url: row.profile_image_url || null,
+    podcast_url: row.podcast_url || null,
     hospitals,
     specialization: row.specialization,
     clinic_address: row.clinic_address,
@@ -233,6 +236,7 @@ export class DoctorsService {
           NULL::text as clinic_name,
           d.clinic_address,
           d.profile_image_url,
+          d.podcast_url,
           d.created_at,
           d.updated_at
         FROM doctors d
@@ -303,6 +307,7 @@ export class DoctorsService {
           NULL::text as clinic_name,
           d.clinic_address,
           d.profile_image_url,
+          d.podcast_url,
           d.created_at,
           d.updated_at
         FROM doctors d
@@ -338,8 +343,8 @@ export class DoctorsService {
     const client = await pool.connect();
     try {
       const { rows } = await client.query(
-        `INSERT INTO doctors (user_account_id, hospital_id, branch_id, name, phone, email, specialization, status, qualification, medical_registration_number, clinic_address, years_of_experience, is_active, profile_image_url, created_at, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW()) RETURNING *`,
+        `INSERT INTO doctors (user_account_id, hospital_id, branch_id, name, phone, email, specialization, status, qualification, medical_registration_number, clinic_address, years_of_experience, is_active, profile_image_url, podcast_url, created_at, updated_at) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW()) RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -355,6 +360,7 @@ export class DoctorsService {
           data.years_of_experience || null,
           data.is_active !== undefined ? data.is_active : true,
           data.profile_image_url || null,
+          data.podcast_url || null,
         ],
       );
       if (rows[0]?.profile_image_url) {
@@ -377,8 +383,8 @@ export class DoctorsService {
     try {
       const { rows } = await client.query(
         `UPDATE doctors 
-         SET hospital_id = $1, branch_id = $2, name = $3, phone = $4, email = $5, specialization = $6, status = $7, user_account_id = $8, qualification = $9, medical_registration_number = $10, clinic_address = $11, years_of_experience = $12, is_active = $13, profile_image_url = $14, updated_at = NOW() 
-         WHERE id = $15 RETURNING *`,
+         SET hospital_id = $1, branch_id = $2, name = $3, phone = $4, email = $5, specialization = $6, status = $7, user_account_id = $8, qualification = $9, medical_registration_number = $10, clinic_address = $11, years_of_experience = $12, is_active = $13, profile_image_url = $14, podcast_url = $15, updated_at = NOW() 
+         WHERE id = $16 RETURNING *`,
         [
           data.hospital_id,
           data.branch_id || null,
@@ -394,6 +400,7 @@ export class DoctorsService {
           data.years_of_experience || null,
           data.is_active !== undefined ? data.is_active : true,
           data.profile_image_url || null,
+          data.podcast_url || null,
           data.id,
         ],
       );

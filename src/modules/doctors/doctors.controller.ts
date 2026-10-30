@@ -21,6 +21,7 @@ const doctorSchema = z.object({
   clinic_address: z.string().optional().nullable(),
   years_of_experience: z.number().optional().nullable(),
   profile_image_url: z.string().optional().nullable(),
+  podcast_url: z.string().optional().nullable(),
   is_active: z.boolean().optional().nullable(),
 });
 
@@ -509,6 +510,7 @@ export const DoctorsController = {
         clinic_address: data.clinic_address || null,
         years_of_experience: data.years_of_experience || null,
         profile_image_url: data.profile_image_url || null,
+        podcast_url: data.podcast_url || null,
         is_active: data.is_active !== undefined ? data.is_active : true,
       };
       const doctor = await doctorsService.createDoctor(cleanData);
@@ -543,6 +545,7 @@ export const DoctorsController = {
         clinic_address: data.clinic_address || null,
         years_of_experience: data.years_of_experience || null,
         profile_image_url: data.profile_image_url || null,
+        podcast_url: data.podcast_url || null,
         is_active: data.is_active !== undefined ? data.is_active : true,
       };
       const doctor = await doctorsService.updateDoctor({ id, ...cleanData });

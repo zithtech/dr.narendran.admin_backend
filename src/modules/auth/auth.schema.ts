@@ -3,14 +3,27 @@ import { z } from 'zod';
 /**
  * Login request schema.
  */
-export const loginSchema = z.object({
-  email: z
-    .string()
-    .min(1, 'Email is required.')
-    .max(254)
-    .transform(value => value.trim().toLowerCase()),
-  password: z.string().min(1, 'Password is required.').max(128),
-});
+export const loginSchema = z.preprocess(
+  (val: unknown) => {
+    if (val && typeof val === 'object') {
+      const obj = val as Record<string, unknown>;
+      const email = obj['email'] ?? obj['username'] ?? obj['identifier'] ?? obj['phone'];
+      return { ...obj, email };
+    }
+    return val;
+  },
+  z.object({
+    email: z
+      .string()
+      .min(1, 'Email or username is required.')
+      .max(254)
+      .transform(value => value.trim().toLowerCase()),
+    password: z
+      .string()
+      .min(1, 'Password is required.')
+      .max(128),
+  }),
+);
 
 /**
  * OTP send schema.
@@ -100,14 +113,24 @@ export type VerifyOtpInput = z.output<typeof verifyOtpSchema>;
 export type VerifyMobileOtpInput = VerifyOtpInput;
 export type RegisterPatientInput = z.output<typeof registerPatientSchema>;
 
-export const requestOtpSchema = z.object({
-  phone: z
-    .string()
-    .min(10, 'Mobile number must be at least 10 digits.')
-    .max(15)
-    .transform(val => val.replace(/\D/g, '')),
-  app: z.enum(['doctor', 'patient']).optional(),
-});
+export const requestOtpSchema = z.preprocess(
+  (val: unknown) => {
+    if (val && typeof val === 'object') {
+      const obj = val as Record<string, unknown>;
+      const phone = obj['phone'] ?? obj['mobileNumber'] ?? obj['phone_number'];
+      return { ...obj, phone };
+    }
+    return val;
+  },
+  z.object({
+    phone: z
+      .string()
+      .min(10, 'Mobile number must be at least 10 digits.')
+      .max(20)
+      .transform(val => val.replace(/\D/g, '')),
+    app: z.enum(['doctor', 'patient']).optional(),
+  }),
+);
 export type RequestOtpInput = z.output<typeof requestOtpSchema>;
 
 /**

@@ -400,10 +400,30 @@ export class SupportService {
     },
   ): Promise<SupportTicket> {
     const finalMessage = data.message || data.description || '';
+    const isDoctor = userType.toUpperCase() === 'DOCTOR';
+    let senderName = isDoctor ? 'Doctor' : 'Patient';
+
+    if (isDoctor) {
+      const docRes = await pool.query<{ name: string }>(
+        'SELECT name FROM doctors WHERE id = $1 OR user_account_id = $1 LIMIT 1',
+        [userId],
+      );
+      if (docRes.rows[0]?.name) {
+        senderName = `Dr. ${docRes.rows[0].name.replace(/^Dr\.?\s*/i, '')}`;
+      }
+    } else {
+      const patRes = await pool.query<{ name: string }>(
+        'SELECT COALESCE(u.full_name, p.name) AS name FROM patients p LEFT JOIN users u ON u.id = p.user_account_id WHERE p.id = $1 OR p.user_account_id = $1 LIMIT 1',
+        [userId],
+      );
+      if (patRes.rows[0]?.name) {
+        senderName = patRes.rows[0].name;
+      }
+    }
 
     const ticket = await supportRepository.createTicket({
       userId,
-      userType,
+      userType: isDoctor ? 'DOCTOR' : 'PATIENT',
       subject: data.subject,
       message: finalMessage,
       category: data.category,
@@ -416,9 +436,9 @@ export class SupportService {
     // Initial message in thread
     await supportRepository.createTicketMessage({
       ticketId: ticket.id,
-      senderType: 'PATIENT',
+      senderType: isDoctor ? 'DOCTOR' : 'PATIENT',
       senderId: userId,
-      senderName: 'Patient',
+      senderName,
       messageType: 'MESSAGE',
       message: finalMessage,
     });
@@ -440,20 +460,21 @@ export class SupportService {
       },
     });
 
-    // Dispatch in-app notification to patient
+    // Dispatch in-app notification to doctor or patient
+    const appType = isDoctor ? 'DOCTOR' : 'PATIENT';
     void Promise.resolve(
       notificationService?.sendToUser(
         userId,
         {
           type: 'SUPPORT_TICKET_UPDATE',
           title: `Ticket Created (${ticket.ticket_number})`,
-          body: `We have received your support request: "${ticket.subject.slice(0, 50)}". Our clinic care team will respond shortly.`,
+          body: `We have received your support request: "${ticket.subject.slice(0, 50)}". Our clinic administration team will respond shortly.`,
           data: {
             ticketId: ticket.id,
             ticketNumber: ticket.ticket_number,
           },
         },
-        { saveInApp: true, appType: 'PATIENT' },
+        { saveInApp: true, appType },
       ),
     ).catch(err => logger.warn({ err, ticketId: ticket.id }, 'Failed to dispatch ticket creation notification'));
 
@@ -473,7 +494,7 @@ export class SupportService {
       throw new NotFoundError('Ticket not found or access denied');
     }
 
-    // Strictly exclude internal staff notes for patient view!
+    // Strictly exclude internal staff notes for patient / doctor view!
     const messages = await supportRepository.findMessagesByTicketId(ticketId, false);
     return { ticket, messages };
   }
@@ -492,24 +513,34 @@ export class SupportService {
       throw new ValidationError('Cannot reply to a closed ticket.');
     }
 
+    const isDoctor = ticket.user_type?.toUpperCase() === 'DOCTOR';
+    let senderName = isDoctor ? (ticket.doctor_name || 'Doctor') : (ticket.patient_name || 'Patient');
+    if (isDoctor && !senderName.startsWith('Dr.')) {
+      senderName = `Dr. ${senderName.replace(/^Dr\.?\s*/i, '')}`;
+    }
+
     const newMessage = await supportRepository.createTicketMessage({
       ticketId,
-      senderType: 'PATIENT',
+      senderType: isDoctor ? 'DOCTOR' : 'PATIENT',
       senderId: userId,
-      senderName: 'Patient',
+      senderName,
       messageType: 'MESSAGE',
       message,
     });
 
-    // If ticket was waiting for patient or resolved, transition back to IN_PROGRESS
-    if (ticket.status === 'WAITING_FOR_PATIENT' || ticket.status === 'RESOLVED') {
+    // If ticket was waiting for user or resolved, transition back to IN_PROGRESS
+    if (
+      ticket.status === 'WAITING_FOR_PATIENT' ||
+      ticket.status === 'WAITING_FOR_DOCTOR' ||
+      ticket.status === 'RESOLVED'
+    ) {
       await supportRepository.updateTicket(ticketId, { status: 'IN_PROGRESS' });
       await supportRepository.createAuditLog({
         ticketId,
         actorId: userId,
         action: 'STATUS_CHANGED',
         oldValue: { status: ticket.status },
-        newValue: { status: 'IN_PROGRESS', reason: 'Patient reply received' },
+        newValue: { status: 'IN_PROGRESS', reason: `${isDoctor ? 'Doctor' : 'Patient'} reply received` },
       });
     }
 
@@ -624,7 +655,16 @@ export class SupportService {
 
   // ── Admin Workspace Operations ─────────────────────────────────────────────
 
+  async getAdminMetrics(userType?: string): Promise<SupportMetrics> {
+    return supportRepository.getSupportMetrics(userType);
+  }
+
+  async getActiveAgents(): Promise<SupportAgent[]> {
+    return supportRepository.listActiveSupportAgents();
+  }
+
   async getAdminTickets(filters: {
+    userType?: string | undefined;
     status?: string | undefined;
     category?: string | undefined;
     priority?: string | undefined;
@@ -634,6 +674,7 @@ export class SupportService {
     limit?: number | undefined;
   }) {
     return supportRepository.listTicketsForAdmin({
+      userType: filters.userType,
       status: filters.status,
       category: filters.category,
       priority: filters.priority,
@@ -727,22 +768,24 @@ export class SupportService {
       },
     });
 
-    // Notify patient if resolved or closed
+    // Notify doctor or patient if resolved or closed
     if (updates.status === 'RESOLVED' && existing.status !== 'RESOLVED') {
+      const isDoctor = existing.user_type?.toUpperCase() === 'DOCTOR';
+      const appType = isDoctor ? 'DOCTOR' : 'PATIENT';
       void Promise.resolve(
         notificationService?.sendToUser(
           existing.user_id,
           {
             type: 'SUPPORT_TICKET_UPDATE',
             title: `Ticket Resolved (${existing.ticket_number})`,
-            body: `Your support ticket has been resolved by clinic staff: "${existing.subject}". Tap to review resolution.`,
+            body: `Your support ticket has been resolved: "${existing.subject}". Tap to review resolution.`,
             data: {
               ticketId: existing.id,
               ticketNumber: existing.ticket_number,
               status: 'RESOLVED',
             },
           },
-          { saveInApp: true, appType: 'PATIENT' },
+          { saveInApp: true, appType },
         ),
       ).catch(err => logger.warn({ err }, 'Failed to send resolution notification'));
     }
@@ -828,20 +871,24 @@ export class SupportService {
       });
     }
 
-    // Dispatch notification to patient
+    // Dispatch notification to doctor or patient
+    const isDoctor = ticket.user_type?.toUpperCase() === 'DOCTOR';
+    const appType = isDoctor ? 'DOCTOR' : 'PATIENT';
+    const replyTitle = isDoctor ? 'Doctor Support Reply' : 'Support Reply';
+
     void Promise.resolve(
       notificationService?.sendToUser(
         ticket.user_id,
         {
           type: 'SUPPORT_TICKET_UPDATE',
-          title: `Support Reply (${ticket.ticket_number})`,
-          body: `Dr. Narendran Clinic Support replied: "${message.slice(0, 80)}"`,
+          title: `${replyTitle} (${ticket.ticket_number})`,
+          body: `Dr. Narendran Clinic Admin replied: "${message.slice(0, 80)}"`,
           data: {
             ticketId: ticket.id,
             ticketNumber: ticket.ticket_number,
           },
         },
-        { saveInApp: true, appType: 'PATIENT' },
+        { saveInApp: true, appType },
       ),
     ).catch(err => logger.warn({ err }, 'Failed to dispatch reply notification'));
 
@@ -900,13 +947,6 @@ export class SupportService {
     );
   }
 
-  async getAdminMetrics(): Promise<SupportMetrics> {
-    return supportRepository.getSupportMetrics();
-  }
-
-  async getActiveAgents(): Promise<SupportAgent[]> {
-    return supportRepository.listActiveSupportAgents();
-  }
 
   // ── Knowledge Base Management ──────────────────────────────────────────────
 

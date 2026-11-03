@@ -66,6 +66,8 @@ apiRouter.use('/lab-services', labServicesRouter);
 apiRouter.use('/lab-tests', labTestsRouter);
 apiRouter.use('/linked-medicals', linkedMedicalsRouter);
 apiRouter.use('/support', supportRouter);
+apiRouter.use('/doctor/support', supportRouter);
+apiRouter.use('/doctor-support', supportRouter);
 apiRouter.use('/articles', supportRouter);
 apiRouter.use('/admin/support', adminSupportRouter);
 apiRouter.use('/admin/orders', ordersRouter);

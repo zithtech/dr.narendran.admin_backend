@@ -12,6 +12,11 @@ import type {
   TicketStatus,
 } from './support.types.js';
 
+function safeUuid(val?: string | null): string | null {
+  if (!val) return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val) ? val : null;
+}
+
 export class SupportRepository {
   // ── Support Tickets ────────────────────────────────────────────────────────
 
@@ -26,16 +31,20 @@ export class SupportRepository {
     relatedEntityId?: string | null | undefined;
     aiConversationId?: string | null | undefined;
   }): Promise<SupportTicket> {
+    const isDoctor = data.userType.toUpperCase() === 'DOCTOR';
+    const prefix = isDoctor ? 'DOC-' : 'TKT-';
+
     const { rows } = await pool.query<SupportTicket>(
       `INSERT INTO support_tickets (
-        user_id, user_type, subject, message, category, priority,
+        ticket_number, user_id, user_type, subject, message, category, priority,
         related_entity_type, related_entity_id, ai_conversation_id
       )
-      VALUES ($1, $2, $3, $4, COALESCE($5, 'GENERAL_QUERY'), COALESCE($6, 'MEDIUM'), $7, $8, $9)
+      VALUES ($1 || nextval('support_ticket_seq'::regclass), $2, $3, $4, $5, COALESCE($6, 'GENERAL_QUERY'), COALESCE($7, 'MEDIUM'), $8, $9, $10)
       RETURNING *`,
       [
+        prefix,
         data.userId,
-        data.userType,
+        isDoctor ? 'DOCTOR' : 'PATIENT',
         data.subject,
         data.message,
         data.category || 'GENERAL_QUERY',
@@ -65,6 +74,10 @@ export class SupportRepository {
         ) AS latest_message_at
       FROM support_tickets t
       WHERE t.user_id = $1
+         OR t.user_id IN (SELECT id FROM doctors WHERE user_account_id = $1)
+         OR t.user_id IN (SELECT user_account_id FROM doctors WHERE id = $1)
+         OR t.user_id IN (SELECT id FROM patients WHERE user_account_id = $1)
+         OR t.user_id IN (SELECT user_account_id FROM patients WHERE id = $1)
       ORDER BY t.created_at DESC`,
       [userId],
     );
@@ -76,7 +89,13 @@ export class SupportRepository {
     let userConstraint = '';
     if (userId) {
       params.push(userId);
-      userConstraint = `AND t.user_id = $2`;
+      userConstraint = `AND (
+        t.user_id = $2
+        OR t.user_id IN (SELECT id FROM doctors WHERE user_account_id = $2)
+        OR t.user_id IN (SELECT user_account_id FROM doctors WHERE id = $2)
+        OR t.user_id IN (SELECT id FROM patients WHERE user_account_id = $2)
+        OR t.user_id IN (SELECT user_account_id FROM patients WHERE id = $2)
+      )`;
     }
 
     const { rows } = await pool.query<SupportTicket>(
@@ -84,11 +103,21 @@ export class SupportRepository {
         COALESCE(u.full_name, p.name) AS patient_name,
         u.email AS patient_email,
         COALESCE(u.mobile_number, p.phone) AS patient_phone,
+        d.name AS doctor_name,
+        d.email AS doctor_email,
+        d.phone AS doctor_phone,
+        d.specialization AS doctor_specialization,
+        d.qualification AS doctor_qualification,
+        h.name AS doctor_hospital_name,
+        b.name AS doctor_branch_name,
         au.name AS assigned_agent_name,
         au.username AS assigned_agent_username
       FROM support_tickets t
       LEFT JOIN users u ON u.id = t.user_id
       LEFT JOIN patients p ON p.id = t.user_id OR p.user_account_id = t.user_id
+      LEFT JOIN doctors d ON d.id = t.user_id OR d.user_account_id = t.user_id
+      LEFT JOIN hospitals h ON h.id = d.hospital_id
+      LEFT JOIN hospital_branches b ON b.id = d.branch_id
       LEFT JOIN admin_users au ON au.id = t.assigned_to
       WHERE t.id = $1 ${userConstraint}
       LIMIT 1`,
@@ -98,6 +127,7 @@ export class SupportRepository {
   }
 
   async listTicketsForAdmin(filters: {
+    userType?: string | undefined;
     status?: string | undefined;
     category?: string | undefined;
     priority?: string | undefined;
@@ -114,6 +144,10 @@ export class SupportRepository {
     const values: unknown[] = [];
     let idx = 1;
 
+    if (filters.userType) {
+      conditions.push(`UPPER(t.user_type) = UPPER($${idx++})`);
+      values.push(filters.userType);
+    }
     if (filters.status) {
       conditions.push(`t.status = $${idx++}`);
       values.push(filters.status);
@@ -136,7 +170,7 @@ export class SupportRepository {
     }
     if (filters.search) {
       conditions.push(
-        `(t.ticket_number ILIKE $${idx} OR t.subject ILIKE $${idx} OR COALESCE(u.full_name, p.name, '') ILIKE $${idx} OR COALESCE(u.email, '') ILIKE $${idx})`,
+        `(t.ticket_number ILIKE $${idx} OR t.subject ILIKE $${idx} OR COALESCE(u.full_name, p.name, '') ILIKE $${idx} OR COALESCE(u.email, '') ILIKE $${idx} OR COALESCE(d.name, '') ILIKE $${idx} OR COALESCE(d.specialization, '') ILIKE $${idx})`,
       );
       values.push(`%${filters.search}%`);
       idx++;
@@ -148,6 +182,7 @@ export class SupportRepository {
       `SELECT COUNT(*) FROM support_tickets t
        LEFT JOIN users u ON u.id = t.user_id
        LEFT JOIN patients p ON p.id = t.user_id OR p.user_account_id = t.user_id
+       LEFT JOIN doctors d ON d.id = t.user_id OR d.user_account_id = t.user_id
        WHERE ${whereClause}`,
       values,
     );
@@ -158,6 +193,13 @@ export class SupportRepository {
         COALESCE(u.full_name, p.name) AS patient_name,
         u.email AS patient_email,
         COALESCE(u.mobile_number, p.phone) AS patient_phone,
+        d.name AS doctor_name,
+        d.email AS doctor_email,
+        d.phone AS doctor_phone,
+        d.specialization AS doctor_specialization,
+        d.qualification AS doctor_qualification,
+        h.name AS doctor_hospital_name,
+        b.name AS doctor_branch_name,
         au.name AS assigned_agent_name,
         au.username AS assigned_agent_username,
         (
@@ -173,6 +215,9 @@ export class SupportRepository {
       FROM support_tickets t
       LEFT JOIN users u ON u.id = t.user_id
       LEFT JOIN patients p ON p.id = t.user_id OR p.user_account_id = t.user_id
+      LEFT JOIN doctors d ON d.id = t.user_id OR d.user_account_id = t.user_id
+      LEFT JOIN hospitals h ON h.id = d.hospital_id
+      LEFT JOIN hospital_branches b ON b.id = d.branch_id
       LEFT JOIN admin_users au ON au.id = t.assigned_to
       WHERE ${whereClause}
       ORDER BY t.created_at DESC
@@ -246,6 +291,7 @@ export class SupportRepository {
 
   // ── Ticket Messages ────────────────────────────────────────────────────────
 
+
   async createTicketMessage(data: {
     ticketId: string;
     senderType: string;
@@ -264,7 +310,7 @@ export class SupportRepository {
       [
         data.ticketId,
         data.senderType,
-        data.senderId || null,
+        safeUuid(data.senderId),
         data.senderName || null,
         data.messageType || 'MESSAGE',
         data.message,
@@ -292,28 +338,39 @@ export class SupportRepository {
 
   // ── Metrics & Agents ───────────────────────────────────────────────────────
 
-  async getSupportMetrics(): Promise<SupportMetrics> {
+  async getSupportMetrics(userType?: string): Promise<SupportMetrics> {
+    const params: unknown[] = [];
+    let filterClause = '';
+    if (userType) {
+      params.push(userType);
+      filterClause = `WHERE UPPER(user_type) = UPPER($1)`;
+    }
+
     const { rows } = await pool.query<{
       total_open: string;
       unassigned: string;
       waiting_patient: string;
+      waiting_doctor: string;
       in_progress: string;
       resolved_today: string;
     }>(`
       SELECT
         COUNT(*) FILTER (WHERE status = 'OPEN') AS total_open,
-        COUNT(*) FILTER (WHERE assigned_to IS NULL AND status IN ('OPEN', 'IN_PROGRESS', 'WAITING_FOR_PATIENT')) AS unassigned,
+        COUNT(*) FILTER (WHERE assigned_to IS NULL AND status IN ('OPEN', 'IN_PROGRESS', 'WAITING_FOR_PATIENT', 'WAITING_FOR_DOCTOR')) AS unassigned,
         COUNT(*) FILTER (WHERE status = 'WAITING_FOR_PATIENT') AS waiting_patient,
+        COUNT(*) FILTER (WHERE status = 'WAITING_FOR_DOCTOR') AS waiting_doctor,
         COUNT(*) FILTER (WHERE status = 'IN_PROGRESS') AS in_progress,
         COUNT(*) FILTER (WHERE status = 'RESOLVED' AND resolved_at >= CURRENT_DATE) AS resolved_today
       FROM support_tickets
-    `);
+      ${filterClause}
+    `, params);
 
     const m = rows[0]!;
     return {
       totalOpenTickets: parseInt(m.total_open || '0', 10),
       unassignedTickets: parseInt(m.unassigned || '0', 10),
       awaitingPatientResponse: parseInt(m.waiting_patient || '0', 10),
+      awaitingDoctorResponse: parseInt(m.waiting_doctor || '0', 10),
       inProgressTickets: parseInt(m.in_progress || '0', 10),
       resolvedToday: parseInt(m.resolved_today || '0', 10),
       averageFirstResponseMinutes: 18,
@@ -354,7 +411,7 @@ export class SupportRepository {
        RETURNING *`,
       [
         data.ticketId,
-        data.actorId || null,
+        safeUuid(data.actorId),
         data.action,
         data.oldValue ? JSON.stringify(data.oldValue) : null,
         data.newValue ? JSON.stringify(data.newValue) : null,

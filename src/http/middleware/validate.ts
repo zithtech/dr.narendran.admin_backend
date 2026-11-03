@@ -31,9 +31,9 @@ function parseOrThrow(
   const result = schema.safeParse(value);
 
   if (!result.success) {
-    /* Zod's issue list becomes `details` on the 400 response, so a client can
-       show the error against the right field instead of a generic banner. */
-    throw new ValidationError('That request was not valid.', {
+    const firstIssue = result.error.issues[0];
+    const message = firstIssue?.message || 'That request was not valid.';
+    throw new ValidationError(message, {
       details: {
         source,
         issues: result.error.issues.map(issue => ({

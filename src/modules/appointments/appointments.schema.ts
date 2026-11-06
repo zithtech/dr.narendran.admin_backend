@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
 export const createAppointmentSchema = z.object({
-  slotId: z.string().uuid('Invalid slot ID'),
+  slotId: z.string().optional(),
   purpose: z.string().trim().min(1, 'Purpose is required'),
   doctorId: z.string().uuid().optional(),
   doctor_id: z.string().uuid().optional(),
+  patientId: z.string().uuid().optional(),
+  patient_id: z.string().uuid().optional(),
   patientNote: z
     .string()
     .trim()
@@ -12,6 +14,8 @@ export const createAppointmentSchema = z.object({
     .optional(),
   patientName: z.string().trim().optional(),
   patientPhone: z.string().trim().optional(),
+  appointmentDate: z.string().optional(),
+  appointmentTime: z.string().optional(),
 });
 
 export const doctorBookAppointmentSchema = z.object({

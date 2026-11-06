@@ -1142,6 +1142,28 @@ export async function getPatientPrescriptions(req: Request, res: Response): Prom
   res.status(200).json({ status: 'success', data: formatted });
 }
 
+export async function getAllAppointments(req: Request, res: Response): Promise<void> {
+  if (!req.user) {
+    throw new UnauthorizedError('Authentication required.');
+  }
+  const { status, doctorId, patientId, date, search } = req.query as Record<string, string>;
+  const appointments = await service.getAllAppointments({ status, doctorId, patientId, date, search });
+  res.status(200).json({ status: 'success', data: appointments });
+}
+
+export async function getDoctorDailySchedules(req: Request, res: Response): Promise<void> {
+  if (!req.user) {
+    throw new UnauthorizedError('Authentication required.');
+  }
+  const date = typeof req.query['date'] === 'string' ? req.query['date'] : undefined;
+  const doctorId = typeof req.query['doctorId'] === 'string' ? req.query['doctorId'] : undefined;
+  const params: { date?: string; doctorId?: string } = {};
+  if (date) params.date = date;
+  if (doctorId) params.doctorId = doctorId;
+  const schedule = await service.getDoctorDailySchedules(params);
+  res.status(200).json({ status: 'success', data: schedule });
+}
+
 export async function getDoctor(_req: Request, res: Response): Promise<void> {
   const doctor = await service.getDoctorInfo();
   res.status(200).json({ status: 'success', data: doctor });
@@ -1291,7 +1313,7 @@ export async function getAppointmentById(
     throw new UnauthorizedError('Authentication required.');
   }
   const idStr = String(req.params['id']);
-  const appointment = await service.getAppointmentById(idStr, req.user.id);
+  const appointment = await service.getAppointmentById(idStr, req.user.id, req.user.role);
   res.status(200).json({ status: 'success', data: appointment });
 }
 

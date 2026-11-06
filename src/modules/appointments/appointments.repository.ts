@@ -17,15 +17,21 @@ import crypto from 'crypto';
 
 import { pool } from '@/db/pool.js';
 
+import { formatAppointmentDateTime } from './appointments.formatter.js';
 import type {
+  AdminAppointmentFilter,
+  AdminAppointmentItem,
   Appointment,
   AppointmentRescheduleRequest,
   AppointmentSlot,
   DateSlotSummary,
   DoctorAvailabilityItem,
   DoctorAvailabilityResult,
+  DoctorDailyScheduleResult,
   DoctorProfile,
   DoctorRescheduleRequestItem,
+  DoctorScheduleAppointmentItem,
+  DoctorScheduleSummary,
 } from './appointments.types.js';
 
 interface DBDoctorProfileRow {
@@ -133,7 +139,7 @@ export async function getDefaultDoctor(): Promise<DoctorProfile | null> {
   };
 }
 
-function generateSlotId(doctorId: string, dateStr: string, startTimeStr: string): string {
+export function generateSlotId(doctorId: string, dateStr: string, startTimeStr: string): string {
   const hash = crypto
     .createHash('md5')
     .update(`${doctorId}:${dateStr}:${startTimeStr}`)
@@ -505,6 +511,20 @@ export async function getSlotsForDoctor(
     });
   }
 
+  let regularRowsList = allRegularRes.rows;
+  if (regularRowsList.length === 0 && allCustomRes.rows.length === 0) {
+    const defaultDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    regularRowsList = defaultDays.map(d => ({
+      day_of_week: d,
+      start_time: '09:00:00',
+      end_time: '17:00:00',
+      status: 'ACTIVE',
+      slot_length: 30,
+      location_name: null,
+      location_address: null,
+    }));
+  }
+
   const summaries: DateSlotSummary[] = [];
 
   for (let d = 0; d < daysCount; d++) {
@@ -533,7 +553,7 @@ export async function getSlotsForDoctor(
       const rDate = typeof r.date === 'string' ? r.date.split('T')[0] : formatDateKey(new Date(r.date));
       return rDate === dateStr;
     });
-    const regularRows = allRegularRes.rows.filter(r => r.day_of_week === dayNameUpper);
+    const regularRows = regularRowsList.filter(r => r.day_of_week === dayNameUpper);
 
     let slots: AppointmentSlot[] = [];
 
@@ -964,9 +984,252 @@ export async function getAppointmentsByPatient(
   }));
 }
 
+export async function getAllAppointments(filters?: AdminAppointmentFilter): Promise<AdminAppointmentItem[]> {
+  const conditions: string[] = [];
+  const values: any[] = [];
+
+  if (filters?.status && filters.status.toLowerCase() !== 'all') {
+    values.push(filters.status.toLowerCase());
+    conditions.push(`LOWER(a.status) = $${values.length}`);
+  }
+
+  if (filters?.doctorId) {
+    values.push(filters.doctorId);
+    conditions.push(`(a.doctor_id = $${values.length} OR d.id = $${values.length} OR d.user_account_id = $${values.length})`);
+  }
+
+  if (filters?.patientId) {
+    values.push(filters.patientId);
+    conditions.push(`(a.patient_id = $${values.length} OR p.id = $${values.length} OR p.user_account_id = $${values.length})`);
+  }
+
+  if (filters?.date) {
+    values.push(filters.date);
+    conditions.push(`(DATE(a.scheduled_start AT TIME ZONE 'Asia/Kolkata') = $${values.length}::date OR DATE(a.scheduled_start) = $${values.length}::date)`);
+  }
+
+  if (filters?.search) {
+    values.push(`%${filters.search.toLowerCase()}%`);
+    const idx = values.length;
+    conditions.push(`(
+      LOWER(COALESCE(p.name, a.patient_name, '')) LIKE $${idx} OR
+      LOWER(COALESCE(p.phone, a.patient_phone, '')) LIKE $${idx} OR
+      LOWER(COALESCE(d.name, '')) LIKE $${idx} OR
+      LOWER(COALESCE(a.purpose, '')) LIKE $${idx} OR
+      LOWER(COALESCE(a.token_number, '')) LIKE $${idx}
+    )`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const query = `
+    SELECT 
+      a.id,
+      a.patient_id AS "patientId",
+      COALESCE(p.name, a.patient_name, 'Patient') AS "patientName",
+      COALESCE(p.phone, a.patient_phone, '') AS "patientPhone",
+      p.email AS "patientEmail",
+      p.gender AS "patientGender",
+      p.date_of_birth AS "patientDob",
+      a.doctor_id AS "doctorId",
+      COALESCE(d.name, 'Doctor') AS "doctorName",
+      d.specialization AS "doctorSpecialty",
+      d.phone AS "doctorPhone",
+      d.email AS "doctorEmail",
+      hb.name AS "branchName",
+      h.name AS "hospitalName",
+      a.slot_id AS "slotId",
+      a.scheduled_start AS "scheduledStart",
+      a.scheduled_end AS "scheduledEnd",
+      a.token_number AS "tokenNumber",
+      a.purpose,
+      a.patient_note AS "patientNote",
+      a.status,
+      a.reschedule_reason AS "rescheduleReason",
+      a.cancellation_reason AS "cancellationReason",
+      a.cancelled_by AS "cancelledBy",
+      a.created_at AS "createdAt",
+      a.updated_at AS "updatedAt"
+    FROM appointments a
+    LEFT JOIN doctors d ON (a.doctor_id = d.user_account_id OR a.doctor_id = d.id)
+    LEFT JOIN patients p ON (a.patient_id = p.user_account_id OR a.patient_id = p.id)
+    LEFT JOIN hospital_branches hb ON (d.branch_id = hb.id OR p.branch_id = hb.id)
+    LEFT JOIN hospitals h ON (d.hospital_id = h.id OR p.hospital_id = h.id)
+    ${whereClause}
+    ORDER BY a.scheduled_start DESC
+  `;
+
+  const { rows } = await pool.query<any>(query, values);
+
+  return rows.map((r) => {
+    const { dateStr, timeStr } = formatAppointmentDateTime(r.scheduledStart);
+    const rawToken = r.tokenNumber ? String(r.tokenNumber).trim() : '01';
+    const tokenDisplay = rawToken.startsWith('#') ? rawToken : `#${rawToken}`;
+
+    return {
+      id: r.id,
+      patientId: r.patientId || '',
+      patientName: r.patientName,
+      patientPhone: r.patientPhone || '',
+      patientEmail: r.patientEmail ?? undefined,
+      patientGender: r.patientGender ?? undefined,
+      patientDob: r.patientDob ? String(r.patientDob).split('T')[0] : undefined,
+      doctorId: r.doctorId,
+      doctorName: r.doctorName.startsWith('Dr.') ? r.doctorName : `Dr. ${r.doctorName}`,
+      doctorSpecialty: r.doctorSpecialty ?? undefined,
+      doctorPhone: r.doctorPhone ?? undefined,
+      doctorEmail: r.doctorEmail ?? undefined,
+      branchName: r.branchName ?? undefined,
+      hospitalName: r.hospitalName ?? undefined,
+      slotId: r.slotId ?? undefined,
+      scheduledStart: new Date(r.scheduledStart).toISOString(),
+      scheduledEnd: new Date(r.scheduledEnd).toISOString(),
+      date: dateStr,
+      time: timeStr,
+      tokenNumber: tokenDisplay,
+      purpose: r.purpose || 'Consultation',
+      patientNote: r.patientNote ?? undefined,
+      status: r.status,
+      rescheduleReason: r.rescheduleReason ?? undefined,
+      cancellationReason: r.cancellationReason ?? undefined,
+      cancelledBy: r.cancelledBy ?? undefined,
+      createdAt: new Date(r.createdAt).toISOString(),
+      updatedAt: new Date(r.updatedAt).toISOString(),
+    };
+  });
+}
+
+export async function getDoctorDailySchedules(params?: {
+  date?: string;
+  doctorId?: string;
+}): Promise<DoctorDailyScheduleResult> {
+  const targetDate = params?.date || formatDateKey(new Date());
+
+  // 1. Fetch registered doctors
+  const docConditions: string[] = ["d.status = 'ACTIVE'"];
+  const docValues: any[] = [];
+
+  if (params?.doctorId) {
+    docValues.push(params.doctorId);
+    docConditions.push(`(d.id = $${docValues.length} OR d.user_account_id = $${docValues.length})`);
+  }
+
+  const docQuery = `
+    SELECT 
+      d.id,
+      d.user_account_id AS "userAccountId",
+      d.name,
+      d.specialization,
+      d.phone,
+      d.email,
+      d.profile_image_url AS "profileImageUrl",
+      h.name AS "hospitalName",
+      hb.name AS "branchName"
+    FROM doctors d
+    LEFT JOIN hospitals h ON d.hospital_id = h.id
+    LEFT JOIN hospital_branches hb ON d.branch_id = hb.id
+    WHERE ${docConditions.join(' AND ')}
+    ORDER BY d.name ASC
+  `;
+  const { rows: doctors } = await pool.query<any>(docQuery, docValues);
+
+  // 2. Fetch appointments for target date
+  const apptQuery = `
+    SELECT 
+      a.id,
+      a.patient_id AS "patientId",
+      COALESCE(p.name, a.patient_name, 'Patient') AS "patientName",
+      COALESCE(p.phone, a.patient_phone, '') AS "patientPhone",
+      p.email AS "patientEmail",
+      a.doctor_id AS "doctorId",
+      a.scheduled_start AS "scheduledStart",
+      a.scheduled_end AS "scheduledEnd",
+      a.token_number AS "tokenNumber",
+      a.purpose,
+      a.patient_note AS "patientNote",
+      a.status,
+      a.reschedule_reason AS "rescheduleReason",
+      a.cancellation_reason AS "cancellationReason",
+      a.created_at AS "createdAt"
+    FROM appointments a
+    LEFT JOIN patients p ON (a.patient_id = p.user_account_id OR a.patient_id = p.id)
+    WHERE (DATE(a.scheduled_start AT TIME ZONE 'Asia/Kolkata') = $1::date OR DATE(a.scheduled_start) = $1::date)
+    ORDER BY a.scheduled_start ASC
+  `;
+  const { rows: apptRows } = await pool.query<any>(apptQuery, [targetDate]);
+
+  // 3. Group appointments by doctor
+  let totalAppointments = 0;
+  const doctorSummaries: DoctorScheduleSummary[] = doctors.map((doc) => {
+    const docAppts = apptRows.filter(
+      (a) => a.doctorId === doc.id || a.doctorId === doc.userAccountId
+    );
+
+    totalAppointments += docAppts.length;
+
+    const formattedAppts: DoctorScheduleAppointmentItem[] = docAppts.map((a) => {
+      const { dateStr, timeStr } = formatAppointmentDateTime(a.scheduledStart);
+      const rawToken = a.tokenNumber ? String(a.tokenNumber).trim() : '01';
+      const tokenDisplay = rawToken.startsWith('#') ? rawToken : `#${rawToken}`;
+
+      return {
+        id: a.id,
+        patientId: a.patientId || '',
+        patientName: a.patientName,
+        patientPhone: a.patientPhone,
+        patientEmail: a.patientEmail ?? undefined,
+        doctorId: a.doctorId,
+        scheduledStart: new Date(a.scheduledStart).toISOString(),
+        scheduledEnd: new Date(a.scheduledEnd).toISOString(),
+        date: dateStr,
+        time: timeStr,
+        tokenNumber: tokenDisplay,
+        purpose: a.purpose || 'Consultation',
+        patientNote: a.patientNote ?? undefined,
+        status: a.status,
+        rescheduleReason: a.rescheduleReason ?? undefined,
+        cancellationReason: a.cancellationReason ?? undefined,
+        createdAt: new Date(a.createdAt).toISOString(),
+      };
+    });
+
+    const scheduled = formattedAppts.filter(
+      (a) => a.status === 'scheduled' || a.status === 'confirmed'
+    ).length;
+    const completed = formattedAppts.filter((a) => a.status === 'completed').length;
+    const cancelled = formattedAppts.filter((a) => a.status === 'cancelled').length;
+
+    return {
+      id: doc.id,
+      userAccountId: doc.userAccountId ?? undefined,
+      name: doc.name.startsWith('Dr.') ? doc.name : `Dr. ${doc.name}`,
+      specialization: doc.specialization || 'General',
+      phone: doc.phone ?? undefined,
+      email: doc.email ?? undefined,
+      hospitalName: doc.hospitalName ?? undefined,
+      branchName: doc.branchName ?? undefined,
+      profileImageUrl: doc.profileImageUrl ?? undefined,
+      stats: {
+        total: formattedAppts.length,
+        scheduled,
+        completed,
+        cancelled,
+      },
+      appointments: formattedAppts,
+    };
+  });
+
+  return {
+    date: targetDate,
+    totalAppointments,
+    doctors: doctorSummaries,
+  };
+}
+
 export async function getAppointmentById(
   id: string,
   patientId: string,
+  isAdmin?: boolean,
 ): Promise<Appointment | null> {
   const query = `
     SELECT 
@@ -979,8 +1242,8 @@ export async function getAppointmentById(
       a.token_number AS "tokenNumber",
       a.purpose,
       a.patient_note AS "patientNote",
-      a.patient_name AS "patientName",
-      a.patient_phone AS "patientPhone",
+      COALESCE(p.name, a.patient_name) AS "patientName",
+      COALESCE(p.phone, a.patient_phone) AS "patientPhone",
       a.status,
       a.reschedule_reason AS "rescheduleReason",
       a.cancellation_reason AS "cancellationReason",
@@ -995,7 +1258,8 @@ export async function getAppointmentById(
       d.phone AS "docContactPhone"
     FROM appointments a
     LEFT JOIN doctors d ON (a.doctor_id = d.user_account_id OR a.doctor_id = d.id)
-    WHERE a.id = $1 AND (
+    LEFT JOIN patients p ON (a.patient_id = p.user_account_id OR a.patient_id = p.id)
+    WHERE a.id = $1 ${isAdmin ? '' : `AND (
       a.patient_id = $2 
       OR a.doctor_id = $2 
       OR (SELECT user_account_id FROM doctors WHERE id = a.doctor_id) = $2 
@@ -1003,10 +1267,11 @@ export async function getAppointmentById(
       OR (SELECT user_account_id FROM patients WHERE id = a.patient_id) = $2 
       OR (SELECT id FROM patients WHERE user_account_id = $2) = a.patient_id 
       OR a.patient_id IS NULL
-    )
+    )`}
   `;
 
-  const { rows } = await pool.query<DBAppointmentRow>(query, [id, patientId]);
+  const params = isAdmin ? [id] : [id, patientId];
+  const { rows } = await pool.query<DBAppointmentRow>(query, params);
   if (rows.length === 0) return null;
   const r = rows[0]!;
 
@@ -1047,32 +1312,34 @@ export async function rescheduleAppointmentTx(params: {
   userId: string;
   newSlotId: string;
   reason?: string | undefined;
+  isAdmin?: boolean | undefined;
 }): Promise<Appointment | null> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
     // 1. Fetch current appointment
+    const apptQuery = params.isAdmin
+      ? `SELECT id, doctor_id, patient_id, slot_id, status FROM appointments WHERE id = $1`
+      : `SELECT id, doctor_id, patient_id, slot_id, status 
+         FROM appointments 
+         WHERE id = $1 AND (
+           patient_id = $2 
+           OR doctor_id = $2 
+           OR (SELECT user_account_id FROM doctors WHERE id = appointments.doctor_id) = $2 
+           OR (SELECT id FROM doctors WHERE user_account_id = $2) = appointments.doctor_id 
+           OR (SELECT user_account_id FROM patients WHERE id = appointments.patient_id) = $2 
+           OR (SELECT id FROM patients WHERE user_account_id = $2) = appointments.patient_id 
+           OR patient_id IS NULL
+         )`;
+    const apptParams = params.isAdmin ? [params.appointmentId] : [params.appointmentId, params.userId];
     const apptRes = await client.query<{
       id: string;
       doctor_id: string;
       patient_id: string;
       slot_id: string | null;
       status: string;
-    }>(
-      `SELECT id, doctor_id, patient_id, slot_id, status 
-       FROM appointments 
-       WHERE id = $1 AND (
-         patient_id = $2 
-         OR doctor_id = $2 
-         OR (SELECT user_account_id FROM doctors WHERE id = appointments.doctor_id) = $2 
-         OR (SELECT id FROM doctors WHERE user_account_id = $2) = appointments.doctor_id 
-         OR (SELECT user_account_id FROM patients WHERE id = appointments.patient_id) = $2 
-         OR (SELECT id FROM patients WHERE user_account_id = $2) = appointments.patient_id 
-         OR patient_id IS NULL
-       )`,
-      [params.appointmentId, params.userId],
-    );
+    }>(apptQuery, apptParams);
 
     if (apptRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -1139,7 +1406,7 @@ export async function rescheduleAppointmentTx(params: {
     );
 
     await client.query('COMMIT');
-    return await getAppointmentById(params.appointmentId, currentAppt.patient_id || params.userId);
+    return await getAppointmentById(params.appointmentId, currentAppt.patient_id || params.userId, params.isAdmin);
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -1153,30 +1420,32 @@ export async function cancelAppointmentTx(params: {
   appointmentId: string;
   userId: string;
   reason?: string | undefined;
+  isAdmin?: boolean | undefined;
 }): Promise<Appointment | null> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    const apptQuery = params.isAdmin
+      ? `SELECT id, doctor_id, patient_id, status FROM appointments WHERE id = $1`
+      : `SELECT id, doctor_id, patient_id, status 
+         FROM appointments 
+         WHERE id = $1 AND (
+           patient_id = $2 
+           OR doctor_id = $2 
+           OR (SELECT user_account_id FROM doctors WHERE id = appointments.doctor_id) = $2 
+           OR (SELECT id FROM doctors WHERE user_account_id = $2) = appointments.doctor_id 
+           OR (SELECT user_account_id FROM patients WHERE id = appointments.patient_id) = $2 
+           OR (SELECT id FROM patients WHERE user_account_id = $2) = appointments.patient_id 
+           OR patient_id IS NULL
+         )`;
+    const apptParams = params.isAdmin ? [params.appointmentId] : [params.appointmentId, params.userId];
     const apptRes = await client.query<{
       id: string;
       doctor_id: string;
       patient_id: string;
       status: string;
-    }>(
-      `SELECT id, doctor_id, patient_id, status 
-       FROM appointments 
-       WHERE id = $1 AND (
-         patient_id = $2 
-         OR doctor_id = $2 
-         OR (SELECT user_account_id FROM doctors WHERE id = appointments.doctor_id) = $2 
-         OR (SELECT id FROM doctors WHERE user_account_id = $2) = appointments.doctor_id 
-         OR (SELECT user_account_id FROM patients WHERE id = appointments.patient_id) = $2 
-         OR (SELECT id FROM patients WHERE user_account_id = $2) = appointments.patient_id 
-         OR patient_id IS NULL
-       )`,
-      [params.appointmentId, params.userId],
-    );
+    }>(apptQuery, apptParams);
 
     if (apptRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -1218,7 +1487,7 @@ export async function cancelAppointmentTx(params: {
     );
 
     await client.query('COMMIT');
-    return await getAppointmentById(params.appointmentId, currentAppt.patient_id || params.userId);
+    return await getAppointmentById(params.appointmentId, currentAppt.patient_id || params.userId, params.isAdmin);
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

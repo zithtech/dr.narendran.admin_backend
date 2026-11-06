@@ -26,6 +26,9 @@ export const appointmentsRouter: Router = Router();
 
 appointmentsRouter.use(requireAuth);
 
+appointmentsRouter.get('/', controller.getAllAppointments);
+appointmentsRouter.get('/doctor-schedules', controller.getDoctorDailySchedules);
+
 appointmentsRouter.get('/doctor', controller.getDoctor);
 
 appointmentsRouter.get(

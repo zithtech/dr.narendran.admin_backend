@@ -16,11 +16,11 @@ export const createTicketSchema = z.object({
 
 export const createTicketMessageSchema = z.object({
   message: z.string().trim().min(1, 'Message cannot be empty').max(5000),
-  statusChange: z.enum(['OPEN', 'IN_PROGRESS', 'WAITING_FOR_PATIENT', 'RESOLVED', 'CLOSED']).optional(),
+  statusChange: z.enum(['OPEN', 'IN_PROGRESS', 'WAITING_FOR_PATIENT', 'WAITING_FOR_DOCTOR', 'RESOLVED', 'CLOSED']).optional(),
 });
 
 export const updateTicketSchema = z.object({
-  status: z.enum(['OPEN', 'IN_PROGRESS', 'WAITING_FOR_PATIENT', 'RESOLVED', 'CLOSED']).optional(),
+  status: z.enum(['OPEN', 'IN_PROGRESS', 'WAITING_FOR_PATIENT', 'WAITING_FOR_DOCTOR', 'RESOLVED', 'CLOSED']).optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
   category: z.string().trim().max(100).optional(),
   assignedTo: z.string().uuid().nullable().optional(),

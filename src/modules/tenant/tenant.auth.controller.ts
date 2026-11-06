@@ -6,11 +6,22 @@ import { tenantAuthService } from './tenant.auth.service.js';
 import { signAccessToken } from '@/modules/auth/tokens.js';
 import type { UserRole } from '@/modules/users/users.types.js';
 
-const loginSchema = z.object({
-  tenantCode: z.string().min(1),
-  username: z.string().min(1),
-  password: z.string().min(1),
-});
+const loginSchema = z.preprocess(
+  (val: unknown) => {
+    if (val && typeof val === 'object') {
+      const obj = val as Record<string, unknown>;
+      const username = obj['username'] ?? obj['email'] ?? obj['identifier'];
+      const tenantCode = obj['tenantCode'] ?? obj['tenant_code'];
+      return { ...obj, username, tenantCode };
+    }
+    return val;
+  },
+  z.object({
+    tenantCode: z.string().min(1, 'Tenant code is required.'),
+    username: z.string().min(1, 'Username or email is required.'),
+    password: z.string().min(1, 'Password is required.'),
+  }),
+);
 
 export const TenantAuthController = {
   async login(req: Request, res: Response) {
@@ -52,9 +63,19 @@ export const TenantAuthController = {
 
   async adminLogin(req: Request, res: Response) {
     try {
-      const { username, password } = req.body;
+      const username = req.body.username || req.body.email || req.body.identifier;
+      const password = req.body.password;
 
-      const user = await tenantAuthService.adminLogin(username, password);
+      if (!username || typeof username !== 'string' || !username.trim()) {
+        res.status(400).json({ error: 'Username or email is required.' });
+        return;
+      }
+      if (!password || typeof password !== 'string') {
+        res.status(400).json({ error: 'Password is required.' });
+        return;
+      }
+
+      const user = await tenantAuthService.adminLogin(username.trim(), password);
 
       const rawRole = (user.role || '').toLowerCase();
       const role: UserRole =

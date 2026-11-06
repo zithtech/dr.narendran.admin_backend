@@ -2,6 +2,7 @@ export type TicketStatus =
   | 'OPEN'
   | 'IN_PROGRESS'
   | 'WAITING_FOR_PATIENT'
+  | 'WAITING_FOR_DOCTOR'
   | 'RESOLVED'
   | 'CLOSED';
 
@@ -14,9 +15,12 @@ export type TicketCategory =
   | 'PAYMENTS_BILLING'
   | 'ACCOUNT_LOGIN'
   | 'TECHNICAL_ISSUES'
-  | 'GENERAL_QUERY';
+  | 'GENERAL_QUERY'
+  | 'SCHEDULE_AVAILABILITY'
+  | 'PATIENT_CONSULTATION'
+  | 'PAYOUTS_SETTLEMENTS';
 
-export type MessageSenderType = 'PATIENT' | 'SUPPORT_AGENT' | 'SYSTEM';
+export type MessageSenderType = 'PATIENT' | 'DOCTOR' | 'SUPPORT_AGENT' | 'SYSTEM';
 
 export type MessageType = 'MESSAGE' | 'INTERNAL_NOTE' | 'SYSTEM_EVENT';
 
@@ -46,6 +50,13 @@ export interface SupportTicket {
   patient_name?: string | null;
   patient_email?: string | null;
   patient_phone?: string | null;
+  doctor_name?: string | null;
+  doctor_email?: string | null;
+  doctor_phone?: string | null;
+  doctor_specialization?: string | null;
+  doctor_qualification?: string | null;
+  doctor_hospital_name?: string | null;
+  doctor_branch_name?: string | null;
   assigned_agent_name?: string | null;
   assigned_agent_username?: string | null;
   latest_message?: string | null;
@@ -131,6 +142,7 @@ export interface SupportMetrics {
   totalOpenTickets: number;
   unassignedTickets: number;
   awaitingPatientResponse: number;
+  awaitingDoctorResponse?: number;
   inProgressTickets: number;
   resolvedToday: number;
   averageFirstResponseMinutes: number;

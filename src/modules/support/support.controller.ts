@@ -7,6 +7,7 @@ function paramId(req: Request, paramName = 'id'): string {
 
 import type { Request, Response } from 'express';
 
+import { pool } from '@/db/pool.js';
 import { UnauthorizedError } from '@/http/errors.js';
 
 import {
@@ -316,10 +317,20 @@ export const getSupportTickets = async (req: Request, res: Response) => {
 export const createSupportTicket = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id || req.body?.userId;
-    const userType = req.user?.role || req.body?.userType || 'patient';
+    let userType = req.body?.userType || req.user?.role || 'patient';
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
+    }
+
+    if (userType.toUpperCase() !== 'DOCTOR') {
+      const { rows } = await pool.query(
+        'SELECT id FROM doctors WHERE id = $1 OR user_account_id = $1 LIMIT 1',
+        [userId],
+      );
+      if (rows.length > 0) {
+        userType = 'DOCTOR';
+      }
     }
 
     const data = createTicketSchema.parse(req.body);
@@ -430,9 +441,10 @@ export const getActiveAgents = async (_req: Request, res: Response) => {
 
 // ── Admin Support Workspace Endpoints ────────────────────────────────────────
 
-export const getAdminMetrics = async (_req: Request, res: Response) => {
+export const getAdminMetrics = async (req: Request, res: Response) => {
   try {
-    const metrics = await supportService.getAdminMetrics();
+    const userType = req.query['userType'] as string | undefined;
+    const metrics = await supportService.getAdminMetrics(userType);
     res.json(metrics);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch support metrics' });
@@ -442,6 +454,7 @@ export const getAdminMetrics = async (_req: Request, res: Response) => {
 export const getAdminTickets = async (req: Request, res: Response) => {
   try {
     const filters = {
+      userType: req.query['userType'] as string | undefined,
       status: req.query['status'] as string | undefined,
       category: req.query['category'] as string | undefined,
       priority: req.query['priority'] as string | undefined,

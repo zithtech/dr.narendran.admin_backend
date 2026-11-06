@@ -26,6 +26,7 @@ import { prescriptionTemplatesRouter } from '@/modules/prescription_templates/pr
 import { prescriptionsRouter } from '@/modules/prescriptions/prescriptions.routes.js';
 import { profileRouter } from '@/modules/profile/profile.routes.js';
 import { rbacRouter } from '@/modules/rbac/rbac.routes.js';
+import { reviewsRouter } from '@/modules/reviews/reviews.routes.js';
 import { clientPortalsRouter } from '@/modules/client_portals/client_portals.routes.js';
 import { labPortalRouter } from '@/modules/lab_portal/lab_portal.routes.js';
 import supportRouter, { adminSupportRouter } from '@/modules/support/support.routes.js';
@@ -74,5 +75,6 @@ apiRouter.use('/patient/feedback', feedbackRouter);
 apiRouter.use('/rbac', rbacRouter);
 apiRouter.use('/client-portals', clientPortalsRouter);
 apiRouter.use('/lab-portal', labPortalRouter);
+apiRouter.use('/', reviewsRouter);
 
 

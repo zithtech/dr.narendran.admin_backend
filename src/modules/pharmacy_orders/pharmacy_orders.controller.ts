@@ -1,4 +1,4 @@
- 
+
 import type { Request, Response } from "express";
 
 import { pharmacyOrdersService } from "./pharmacy_orders.service.js";
@@ -48,11 +48,12 @@ export const PharmacyOrdersController = {
   async createOrder(req: Request, res: Response) {
     try {
       const user_id = (req as any).user?.id ? String((req as any).user.id) : undefined;
-      const { prescription_id, items, delivery_address, patient_id } = req.body;
-      const result = await pharmacyOrdersService.createOrder({ user_id, patient_id, prescription_id, items, delivery_address });
+      const { prescription_id, items, delivery_address, patient_id, address_id, patient_address_id } = req.body;
+      const result = await pharmacyOrdersService.createOrder({ user_id, patient_id, prescription_id, items, delivery_address, address_id: address_id || patient_address_id });
       res.status(201).json({ status: "success", data: result });
     } catch (err: any) {
-      res.status(500).json({ error: "Failed to place order", details: err.message });
+      const statusCode = err.statusCode || (err.name === "ForbiddenError" ? 403 : err.name === "BadRequestError" ? 400 : 500);
+      res.status(statusCode).json({ error: "Failed to place order", details: err.message, message: err.message });
     }
   },
 };

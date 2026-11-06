@@ -25,6 +25,32 @@ export class PharmacyOrdersService {
       }
 
       const p = patientRes.rows[0];
+
+      // Check if patient has a saved default address in patient_addresses
+      if (p.id) {
+        const defRes = await client.query(`
+          SELECT * FROM patient_addresses 
+          WHERE patient_id::text = $1 AND is_default = true AND is_active = true 
+          LIMIT 1;
+        `, [p.id]);
+
+        if (defRes.rows.length > 0) {
+          const pa = defRes.rows[0];
+          const parts = [pa.address_line1, pa.address_line2].filter(Boolean);
+          const addrMain = parts.join(', ');
+          const fullAddress = `${addrMain}, ${pa.city}, ${pa.state || 'Tamil Nadu'} - ${pa.postal_code}`;
+          return {
+            delivery_address: fullAddress,
+            patient_id: p.id,
+            address: addrMain,
+            city: pa.city,
+            pincode: pa.postal_code,
+            address_id: pa.id,
+            label: pa.address_label,
+          };
+        }
+      }
+
       const parts = [p.address, p.city].filter(Boolean);
       const addrMain = parts.join(', ');
       const fullAddress = p.pincode ? `${addrMain} - ${p.pincode}` : (addrMain || "3/119 Chetpet Road, Chennai - 600020");
@@ -103,17 +129,16 @@ export class PharmacyOrdersService {
         FROM pharmacy_orders po
         LEFT JOIN LATERAL (
           SELECT COUNT(*)::int as item_count
-          FROM order_items oi
-          WHERE oi.order_id::text = po.id::text
+          FROM pharmacy_order_items poi
+          WHERE poi.order_id::text = po.id::text
         ) ic ON true
         LEFT JOIN LATERAL (
           SELECT STRING_AGG(m.name, ', ') as preview
           FROM (
-            SELECT COALESCE(m2.medicine_name, oi2.dosage_instruction, 'Medicine') as name
-            FROM order_items oi2
-            LEFT JOIN medicines m2 ON m2.id::text = oi2.medicine_id::text
-            WHERE oi2.order_id::text = po.id::text
-            ORDER BY oi2.id ASC
+            SELECT COALESCE(poi2.medicine_name, 'Medicine') as name
+            FROM pharmacy_order_items poi2
+            WHERE poi2.order_id::text = po.id::text
+            ORDER BY poi2.id ASC
             LIMIT 2
           ) m
         ) meds ON true
@@ -148,33 +173,14 @@ export class PharmacyOrdersService {
           COALESCE(po.medicine_cost, 520) as medicine_cost,
           COALESCE(po.delivery_charge, 15) as delivery_charge,
           po.status,
+          COALESCE(po.payment_status, 'pending') as payment_status,
           po.delivery_address,
           po.created_at
         FROM pharmacy_orders po
         WHERE po.id::text = $1 OR po.order_number = $1
       `, [id]);
 
-      let po = poRes.rows[0];
-
-      if (!po) {
-        const oRes = await client.query(`
-          SELECT 
-            o.id::text as id,
-            COALESCE(o.order_number, o.id::text) as order_number,
-            o.total_amount,
-            o.medicine_cost,
-            o.delivery_charge,
-            o.status,
-            o.payment_status,
-            o.created_at,
-            a.full_address as delivery_address
-          FROM orders o
-          LEFT JOIN addresses a ON o.address_id = a.id
-          WHERE o.id::text = $1 OR o.order_number = $1
-        `, [id]);
-
-        po = oRes.rows[0];
-      }
+      const po = poRes.rows[0];
 
       if (!po) {
         return null;
@@ -182,42 +188,23 @@ export class PharmacyOrdersService {
 
       const itemsRes = await client.query(`
         SELECT 
-          oi.id,
-          COALESCE(m.medicine_name, oi.dosage_instruction, 'Medicine') as name,
-          COALESCE(oi.dosage_instruction, '1 tablet • Once daily') as instruction,
-          COALESCE(oi.days, '7 days') as duration,
-          COALESCE(oi.quantity, '1 tablet') as qty
-        FROM order_items oi
-        LEFT JOIN medicines m ON oi.medicine_id = m.id
-        WHERE oi.order_id::text = $1
-        ORDER BY oi.id ASC
+          poi.id,
+          COALESCE(poi.medicine_name, 'Medicine') as name,
+          '1 tablet • Once daily' as instruction,
+          '7 days' as duration,
+          CONCAT(COALESCE(poi.quantity, 1), ' units') as qty
+        FROM pharmacy_order_items poi
+        WHERE poi.order_id::text = $1
+        ORDER BY poi.id ASC
       `, [po.id]);
 
-      let medicines = itemsRes.rows.map((r: any) => ({
+      const medicines = itemsRes.rows.map((r: any) => ({
         id: r.id,
         name: r.name,
         instruction: r.instruction,
         duration: r.duration,
         qty: r.qty
       }));
-
-      if (medicines.length === 0) {
-        const rxItemsRes = await client.query(`
-          SELECT id, medicine_name as name, quantity as qty
-          FROM pharmacy_order_items
-          WHERE order_id::text = $1
-          ORDER BY created_at ASC
-        `, [po.id]);
-        if (rxItemsRes.rows.length > 0) {
-          medicines = rxItemsRes.rows.map((it: any, idx: number) => ({
-            id: it.id || idx + 1,
-            name: it.name,
-            instruction: "1 tablet • Once daily",
-            duration: "7 days",
-            qty: `${it.qty || 1} units`
-          }));
-        }
-      }
 
       const statusRes = await client.query(`
         SELECT status, status_date FROM order_status_logs
@@ -256,7 +243,7 @@ export class PharmacyOrdersService {
         medicines: medicines.length > 0 ? medicines : [
           { id: 1, name: "Amlodipine 5mg", instruction: "1 tablet • Once daily", duration: "7 days", qty: "7 tablets" }
         ],
-        payment_status: "paid"
+        payment_status: (po.payment_status || "pending").toLowerCase()
       };
     } finally {
       client.release();

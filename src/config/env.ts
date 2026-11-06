@@ -79,6 +79,11 @@ const envSchema = z.object({
   SYSTEM_SECURE: booleanFromEnv.default(true),
   GEMINI_API_KEY: z.string().default(""),
 
+  /* Internal Service-to-Service Communication (Patient/Doctor Backend) */
+  PATIENT_BACKEND_URL: z.string().url().default('http://localhost:4000/api'),
+  INTERNAL_SERVICE_SECRET: z.string().default('dr-narendran-internal-key-secret'),
+  PATIENT_BACKEND_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+
   /* Firebase Admin Configuration */
   FIREBASE_PROJECT_ID: z.string().default(''),
   FIREBASE_CLIENT_EMAIL: z.string().default(''),

@@ -49,6 +49,9 @@ export enum NotificationType {
 
   // Chat
   NEW_CHAT_MESSAGE = 'NEW_CHAT_MESSAGE',
+
+  // Feedback & Reviews
+  FEEDBACK_CONFIRMATION = 'FEEDBACK_CONFIRMATION',
 }
 
 

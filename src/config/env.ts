@@ -64,13 +64,21 @@ const envSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
   SKIP_RATE_LIMIT: booleanFromEnv.default(false),
 
-  /* AWS S3 Configuration */
+  /* AWS S3 / Cloudflare R2 Configuration */
   AWS_REGION: z.string().default('eu-north-1'),
   AWS_ACCESS_KEY_ID: z.string().default(''),
   AWS_SECRET_ACCESS_KEY: z.string().default(''),
   S3_BUCKET_NAME: z
     .string()
     .default('zithtech-s3-bucket-431451850777-eu-north-1-an'),
+
+  /* Cloudflare R2 Configuration (S3-compatible) */
+  R2_ACCOUNT_ID: z.string().default(''),
+  R2_ACCESS_KEY_ID: z.string().default(''),
+  R2_SECRET_ACCESS_KEY: z.string().default(''),
+  R2_BUCKET_NAME: z.string().default(''),
+  R2_ENDPOINT: z.string().default(''),
+  R2_PUBLIC_URL: z.string().default(''),
 
   SYSTEM_EMAIL: z.string().email().default('system@example.com'),
   SYSTEM_APP_PASSWORD: z.string().default('change_me'),

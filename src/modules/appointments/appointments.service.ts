@@ -13,13 +13,17 @@ import { NotificationType } from '@/modules/notifications/notification.types.js'
 import { appointmentReminderService } from './appointmentReminder.service.js';
 import { formatAppointmentDateTime } from './appointments.formatter.js';
 import * as repo from './appointments.repository.js';
+import type { UpdateAppointmentInput } from './appointments.schema.js';
 import type {
+  AdminAppointmentFilter,
+  AdminAppointmentItem,
   Appointment,
   AppointmentRescheduleRequest,
   ChooseAlternativeSlotInput,
   CreateAppointmentInput,
   CreateRescheduleRequestInput,
   DateSlotSummary,
+  DoctorDailyScheduleResult,
   DoctorProfile,
   DoctorRescheduleRequestItem,
   RescheduleAppointmentInput,
@@ -75,13 +79,97 @@ export async function getSlots(
   return { doctor, summaries, nextAvailableSlot };
 }
 
+export async function getAllAppointments(
+  filters?: AdminAppointmentFilter,
+): Promise<AdminAppointmentItem[]> {
+  return repo.getAllAppointments(filters);
+}
+
+export async function getDoctorDailySchedules(params?: {
+  date?: string;
+  doctorId?: string;
+}): Promise<DoctorDailyScheduleResult> {
+  return repo.getDoctorDailySchedules(params);
+}
+
 export async function createAppointment(
   patientId: string,
   input: CreateAppointmentInput,
   actorRole?: string,
 ): Promise<Appointment> {
+  const isAdmin = actorRole === 'admin' || actorRole === 'super_admin';
   const targetDoctorId = input.doctorId || input.doctor_id;
-  const slot = await repo.getSlotById(input.slotId, targetDoctorId);
+
+  let effectivePatientId = patientId;
+  let patientName = input.patientName;
+  let patientPhone = input.patientPhone;
+
+  if (isAdmin) {
+    if (input.patientId || input.patient_id) {
+      effectivePatientId = (input.patientId || input.patient_id)!;
+      try {
+        const { pool } = await import('@/db/pool.js');
+        const pRes = await pool.query<{ name: string; phone: string | null }>(
+          `SELECT name, phone FROM patients WHERE id = $1 OR user_account_id = $1`,
+          [effectivePatientId],
+        );
+        if (pRes.rows[0]) {
+          patientName = patientName || pRes.rows[0].name;
+          patientPhone = patientPhone || pRes.rows[0].phone || undefined;
+        }
+      } catch (_e) {
+        // ignore
+      }
+    } else if (input.patientName) {
+      try {
+        const { pool } = await import('@/db/pool.js');
+        const docRes = await pool.query<{ hospital_id: string; branch_id: string | null }>(
+          `SELECT hospital_id, branch_id FROM doctors WHERE id = $1 OR user_account_id = $1`,
+          [targetDoctorId],
+        );
+        const hospitalId = docRes.rows[0]?.hospital_id;
+        const branchId = docRes.rows[0]?.branch_id;
+
+        if (hospitalId) {
+          const existingPat = input.patientPhone
+            ? await pool.query<{ id: string }>(
+                `SELECT id FROM patients WHERE phone = $1 AND hospital_id = $2 LIMIT 1`,
+                [input.patientPhone, hospitalId],
+              )
+            : { rows: [] };
+
+          if (existingPat.rows.length > 0 && existingPat.rows[0]) {
+            effectivePatientId = existingPat.rows[0].id;
+          } else {
+            const newPat = await pool.query<{ id: string }>(
+              `INSERT INTO patients (name, phone, hospital_id, branch_id, status, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW())
+               RETURNING id`,
+              [input.patientName, input.patientPhone || null, hospitalId, branchId || null],
+            );
+            if (newPat.rows[0]) {
+              effectivePatientId = newPat.rows[0].id;
+            }
+          }
+        }
+      } catch (patErr) {
+        logger.warn({ error: patErr }, 'Failed to auto-create patient record for new patient appointment');
+      }
+    }
+  }
+
+  let slotId = input.slotId;
+  if (!slotId && input.appointmentDate && input.appointmentTime && targetDoctorId) {
+    const [h, m] = input.appointmentTime.split(':');
+    const timeFormatted = `${(h || '09').padStart(2, '0')}:${(m || '00').padStart(2, '0')}:00`;
+    slotId = repo.generateSlotId(targetDoctorId, input.appointmentDate, timeFormatted);
+  }
+
+  if (!slotId) {
+    throw new NotFoundError('Appointment slot ID or date/time is required.');
+  }
+
+  const slot = await repo.getSlotById(slotId, targetDoctorId);
   if (!slot) {
     throw new NotFoundError('Appointment slot not found.');
   }
@@ -94,7 +182,7 @@ export async function createAppointment(
     const { summaries } = await getSlots(datePart, 3, doctor.userId);
     const alternativeSlots = summaries
       .flatMap(s => s.slots)
-      .filter(s => !s.isBooked && s.id !== input.slotId)
+      .filter(s => !s.isBooked && s.id !== slotId)
       .slice(0, 3);
     throw new ConflictError('Selected slot is no longer available.', {
       details: { nearestSlots: alternativeSlots },
@@ -108,16 +196,16 @@ export async function createAppointment(
   const tokenNumber = await repo.getNextTokenNumber(doctor.userId, dateStr);
 
   const appt = await repo.createAppointmentTx({
-    patientId,
+    patientId: effectivePatientId,
     doctorId: doctor.userId,
-    slotId: input.slotId,
+    slotId,
     scheduledStart: startDateObj.toISOString(),
     scheduledEnd: scheduledEndObj.toISOString(),
     tokenNumber,
     purpose: input.purpose,
     patientNote: input.patientNote,
-    patientName: input.patientName,
-    patientPhone: input.patientPhone,
+    patientName,
+    patientPhone,
   });
 
   if (!appt) {
@@ -125,7 +213,7 @@ export async function createAppointment(
     const { summaries } = await getSlots(datePart, 3, doctor.userId);
     const alternativeSlots = summaries
       .flatMap(s => s.slots)
-      .filter(s => !s.isBooked && s.id !== input.slotId)
+      .filter(s => !s.isBooked && s.id !== slotId)
       .slice(0, 3);
     throw new ConflictError('Selected slot is no longer available.', {
       details: { nearestSlots: alternativeSlots },
@@ -254,8 +342,10 @@ export async function getPendingRescheduleRequestsCount(
 export async function getAppointmentById(
   id: string,
   patientId: string,
+  actorRole?: string,
 ): Promise<Appointment> {
-  const appt = await repo.getAppointmentById(id, patientId);
+  const isAdmin = actorRole === 'admin' || actorRole === 'super_admin';
+  const appt = await repo.getAppointmentById(id, patientId, isAdmin);
   if (!appt) {
     throw new NotFoundError('Appointment not found');
   }
@@ -268,11 +358,13 @@ export async function rescheduleAppointment(
   input: RescheduleAppointmentInput,
   actorRole?: string,
 ): Promise<Appointment> {
+  const isAdmin = actorRole === 'admin' || actorRole === 'super_admin';
   const updated = await repo.rescheduleAppointmentTx({
     appointmentId,
     userId,
     newSlotId: input.newSlotId,
     reason: input.reason,
+    isAdmin,
   });
 
   if (!updated) {
@@ -360,16 +452,49 @@ export async function rescheduleAppointment(
   return updated;
 }
 
+export async function updateAppointment(
+  appointmentId: string,
+  userId: string,
+  input: UpdateAppointmentInput['body'],
+  actorRole?: string,
+): Promise<AdminAppointmentItem> {
+  const isAdmin = actorRole === 'admin' || actorRole === 'super_admin';
+  const updated = await repo.updateAppointmentTx({
+    appointmentId,
+    userId,
+    doctorId: input.doctorId,
+    slotId: input.slotId,
+    scheduledStart: input.scheduledStart,
+    scheduledEnd: input.scheduledEnd,
+    purpose: input.purpose,
+    patientNote: input.patientNote,
+    status: input.status,
+    patientName: input.patientName,
+    patientPhone: input.patientPhone,
+    rescheduleReason: input.rescheduleReason,
+    cancellationReason: input.cancellationReason,
+    isAdmin,
+  });
+
+  if (!updated) {
+    throw new NotFoundError('Appointment not found');
+  }
+
+  return updated;
+}
+
 export async function cancelAppointment(
   appointmentId: string,
   userId: string,
   reason?: string,
   actorRole?: string,
 ): Promise<Appointment> {
+  const isAdmin = actorRole === 'admin' || actorRole === 'super_admin';
   const cancelled = await repo.cancelAppointmentTx({
     appointmentId,
     userId,
     reason,
+    isAdmin,
   });
 
   if (!cancelled) {

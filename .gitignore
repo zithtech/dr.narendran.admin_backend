@@ -21,3 +21,6 @@ Thumbs.db
 *service-account*.json
 *-firebase-adminsdk-*.json
 
+# Local uploads directory
+uploads/
+

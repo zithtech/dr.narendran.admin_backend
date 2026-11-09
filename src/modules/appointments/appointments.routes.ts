@@ -16,6 +16,7 @@ import {
   doctorBulkRescheduleSchema,
   getSlotsQuerySchema,
   rescheduleAppointmentSchema,
+  updateAppointmentSchema,
   UpdateAvailabilitySchema,
   UpdateBlockedDateSchema,
   UpdateCustomAvailabilitySchema,
@@ -164,6 +165,14 @@ appointmentsRouter.post(
 appointmentsRouter.post(
   '/:id/cancel',
   ...handler({ body: cancelAppointmentSchema }, controller.cancelAppointment),
+);
+
+appointmentsRouter.put(
+  '/:id',
+  ...handler(
+    { body: updateAppointmentSchema },
+    controller.updateAppointment,
+  ),
 );
 
 // ── Wildcard GET /:id must come dead LAST ────────────────────────────────────

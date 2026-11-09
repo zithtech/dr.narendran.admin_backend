@@ -1415,6 +1415,143 @@ export async function rescheduleAppointmentTx(params: {
   }
 }
 
+export async function updateAppointmentTx(params: {
+  appointmentId: string;
+  userId: string;
+  doctorId?: string | undefined;
+  slotId?: string | undefined;
+  scheduledStart?: string | undefined;
+  scheduledEnd?: string | undefined;
+  purpose?: string | undefined;
+  patientNote?: string | undefined;
+  status?: string | undefined;
+  patientName?: string | undefined;
+  patientPhone?: string | undefined;
+  rescheduleReason?: string | undefined;
+  cancellationReason?: string | undefined;
+  isAdmin?: boolean | undefined;
+}): Promise<AdminAppointmentItem | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const apptRes = await client.query<{
+      id: string;
+      doctor_id: string;
+      patient_id: string;
+      slot_id: string | null;
+      status: string;
+    }>(
+      `SELECT id, doctor_id, patient_id, slot_id, status FROM appointments WHERE id = $1`,
+      [params.appointmentId],
+    );
+
+    if (apptRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const currentAppt = apptRes.rows[0]!;
+    const targetDoctorId = params.doctorId || currentAppt.doctor_id;
+
+    let targetStart = params.scheduledStart;
+    let targetEnd = params.scheduledEnd;
+    let targetSlotId = params.slotId;
+
+    if (params.slotId && params.slotId !== currentAppt.slot_id) {
+      const newSlot = await getSlotById(params.slotId, targetDoctorId);
+      if (newSlot) {
+        const newStart = new Date(`${newSlot.slotTime}+05:30`);
+        const newEnd = new Date(newStart.getTime() + 25 * 60 * 1000);
+        targetStart = newStart.toISOString();
+        targetEnd = newEnd.toISOString();
+        targetSlotId = params.slotId;
+      }
+    }
+
+    const updates: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (params.doctorId !== undefined) {
+      updates.push(`doctor_id = $${idx++}`);
+      values.push(params.doctorId);
+    }
+    if (targetSlotId !== undefined) {
+      updates.push(`slot_id = $${idx++}`);
+      values.push(targetSlotId);
+    }
+    if (targetStart !== undefined) {
+      updates.push(`scheduled_start = $${idx++}`);
+      values.push(targetStart);
+    }
+    if (targetEnd !== undefined) {
+      updates.push(`scheduled_end = $${idx++}`);
+      values.push(targetEnd);
+    }
+    if (params.purpose !== undefined) {
+      updates.push(`purpose = $${idx++}`);
+      values.push(params.purpose);
+    }
+    if (params.patientNote !== undefined) {
+      updates.push(`patient_note = $${idx++}`);
+      values.push(params.patientNote);
+    }
+    if (params.status !== undefined) {
+      updates.push(`status = $${idx++}`);
+      values.push(params.status);
+    }
+    if (params.patientName !== undefined) {
+      updates.push(`patient_name = $${idx++}`);
+      values.push(params.patientName);
+    }
+    if (params.patientPhone !== undefined) {
+      updates.push(`patient_phone = $${idx++}`);
+      values.push(params.patientPhone);
+    }
+    if (params.rescheduleReason !== undefined) {
+      updates.push(`reschedule_reason = $${idx++}`);
+      values.push(params.rescheduleReason);
+    }
+    if (params.cancellationReason !== undefined) {
+      updates.push(`cancellation_reason = $${idx++}`);
+      values.push(params.cancellationReason);
+    }
+
+    updates.push(`updated_at = NOW()`);
+
+    if (updates.length > 1) {
+      values.push(params.appointmentId);
+      await client.query(
+        `UPDATE appointments SET ${updates.join(', ')} WHERE id = $${idx}`,
+        values,
+      );
+    }
+
+    if (params.status && params.status !== currentAppt.status) {
+      await client.query(
+        `INSERT INTO appointment_status_history (appointment_id, status, changed_by, notes)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          params.appointmentId,
+          params.status,
+          params.userId,
+          params.rescheduleReason || params.cancellationReason || `Status updated to ${params.status}`,
+        ],
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const appts = await getAllAppointments();
+    return appts.find((a) => a.id === params.appointmentId) || null;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 export async function cancelAppointmentTx(params: {
   appointmentId: string;

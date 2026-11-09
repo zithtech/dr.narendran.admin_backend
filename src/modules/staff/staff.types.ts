@@ -26,6 +26,8 @@ export interface StaffMember {
   branchName?: string;
   shiftTiming: string;
   customShiftDetails?: string;
+  workDays?: string[] | string;
+  work_days?: string[] | string;
   joiningDate: string;
   status: StaffStatus;
   notes?: string;
@@ -48,6 +50,8 @@ export interface CreateStaffInput {
   shift_timing?: string;
   customShiftDetails?: string;
   custom_shift_details?: string;
+  workDays?: string[] | string;
+  work_days?: string[] | string;
   joiningDate?: string;
   joining_date?: string;
   status?: StaffStatus;
@@ -68,6 +72,8 @@ export interface UpdateStaffInput {
   shift_timing?: string;
   customShiftDetails?: string;
   custom_shift_details?: string;
+  workDays?: string[] | string;
+  work_days?: string[] | string;
   joiningDate?: string;
   joining_date?: string;
   status?: StaffStatus;

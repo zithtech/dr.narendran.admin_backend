@@ -13,6 +13,7 @@ import { NotificationType } from '@/modules/notifications/notification.types.js'
 import { appointmentReminderService } from './appointmentReminder.service.js';
 import { formatAppointmentDateTime } from './appointments.formatter.js';
 import * as repo from './appointments.repository.js';
+import type { UpdateAppointmentInput } from './appointments.schema.js';
 import type {
   AdminAppointmentFilter,
   AdminAppointmentItem,
@@ -446,6 +447,37 @@ export async function rescheduleAppointment(
         screen: 'AppointmentDetail',
       },
     }).catch(e => logger.warn({ error: e }, '[FCM] Failed to send reschedule confirmation to patient'));
+  }
+
+  return updated;
+}
+
+export async function updateAppointment(
+  appointmentId: string,
+  userId: string,
+  input: UpdateAppointmentInput['body'],
+  actorRole?: string,
+): Promise<AdminAppointmentItem> {
+  const isAdmin = actorRole === 'admin' || actorRole === 'super_admin';
+  const updated = await repo.updateAppointmentTx({
+    appointmentId,
+    userId,
+    doctorId: input.doctorId,
+    slotId: input.slotId,
+    scheduledStart: input.scheduledStart,
+    scheduledEnd: input.scheduledEnd,
+    purpose: input.purpose,
+    patientNote: input.patientNote,
+    status: input.status,
+    patientName: input.patientName,
+    patientPhone: input.patientPhone,
+    rescheduleReason: input.rescheduleReason,
+    cancellationReason: input.cancellationReason,
+    isAdmin,
+  });
+
+  if (!updated) {
+    throw new NotFoundError('Appointment not found');
   }
 
   return updated;

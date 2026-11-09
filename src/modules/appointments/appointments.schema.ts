@@ -139,6 +139,26 @@ export const UpdateCustomAvailabilitySchema = z.object({
   end_time: z.string().regex(timeRegex, 'Must be in HH:MM format'),
 });
 
+export const updateAppointmentSchema = z.object({
+  doctorId: z.string().uuid().optional(),
+  slotId: z.string().optional(),
+  scheduledStart: z.string().optional(),
+  scheduledEnd: z.string().optional(),
+  purpose: z.string().trim().min(1, 'Purpose cannot be empty').optional(),
+  patientNote: z.string().trim().max(500, 'Note must be under 500 characters').optional(),
+  status: z
+    .enum(['scheduled', 'confirmed', 'rescheduled', 'completed', 'cancelled', 'no_show'])
+    .optional(),
+  patientName: z.string().trim().optional(),
+  patientPhone: z.string().trim().optional(),
+  rescheduleReason: z.string().trim().max(300).optional(),
+  cancellationReason: z.string().trim().max(300).optional(),
+});
+
+export type UpdateAppointmentInput = {
+  body: z.infer<typeof updateAppointmentSchema>;
+};
+
 export const UpdateBlockedDateSchema = z.object({
   blocked_date: z.string().regex(dateRegex, 'Must be YYYY-MM-DD'),
   start_time: z.string().regex(timeRegex, 'Must be in HH:MM format'),

@@ -28,6 +28,7 @@ export async function ensureStaffTable(): Promise<void> {
         branch_id UUID REFERENCES hospital_branches(id) ON DELETE SET NULL,
         shift_timing VARCHAR(100) NOT NULL DEFAULT 'Morning',
         custom_shift_details VARCHAR(255),
+        work_days VARCHAR(255) DEFAULT 'Mon,Tue,Wed,Thu,Fri',
         joining_date DATE NOT NULL DEFAULT CURRENT_DATE,
         status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
         notes TEXT,
@@ -40,6 +41,8 @@ export async function ensureStaffTable(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_hospital_staff_branch ON hospital_staff(branch_id);
       CREATE INDEX IF NOT EXISTS idx_hospital_staff_role ON hospital_staff(role);
       CREATE INDEX IF NOT EXISTS idx_hospital_staff_status ON hospital_staff(status);
+
+      ALTER TABLE hospital_staff ADD COLUMN IF NOT EXISTS work_days VARCHAR(255) DEFAULT 'Mon,Tue,Wed,Thu,Fri';
     `);
     tableEnsured = true;
   } catch (err) {
@@ -82,6 +85,13 @@ function mapRowToStaffMember(row: any): StaffMember {
   if (row.branch_id) staff.branchId = row.branch_id;
   if (row.branch_name) staff.branchName = row.branch_name;
   if (row.custom_shift_details) staff.customShiftDetails = row.custom_shift_details;
+  const workDaysVal: string[] | string = row.work_days
+    ? typeof row.work_days === 'string' && row.work_days.includes(',')
+      ? row.work_days.split(',').map((d: string) => d.trim())
+      : row.work_days
+    : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+  staff.workDays = workDaysVal;
+  staff.work_days = workDaysVal;
   if (row.notes) staff.notes = row.notes;
 
   return staff;
@@ -189,6 +199,10 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
   const branchId = input.branchId || input.branch_id || null;
   const shiftTiming = input.shiftTiming || input.shift_timing || 'Morning';
   const customShiftDetails = input.customShiftDetails || input.custom_shift_details || null;
+  const rawWorkDays = input.workDays ?? input.work_days;
+  const workDaysStr = Array.isArray(rawWorkDays)
+    ? rawWorkDays.join(',')
+    : (rawWorkDays || 'Mon,Tue,Wed,Thu,Fri');
   const joiningDate = input.joiningDate || input.joining_date || new Date().toISOString().split('T')[0];
   const status = input.status || 'ACTIVE';
 
@@ -204,6 +218,7 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
       branch_id,
       shift_timing,
       custom_shift_details,
+      work_days,
       joining_date,
       status,
       notes,
@@ -211,7 +226,7 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
       created_at,
       updated_at
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '[]'::jsonb, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '[]'::jsonb, NOW(), NOW()
     ) RETURNING *
   `;
 
@@ -226,6 +241,7 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
     branchId,
     shiftTiming,
     customShiftDetails,
+    workDaysStr,
     joiningDate,
     status,
     input.notes?.trim() || null,
@@ -279,6 +295,14 @@ export async function updateStaff(id: string, input: UpdateStaffInput): Promise<
   if (effectiveCustomShift !== undefined) {
     values.push(effectiveCustomShift || null);
     updates.push(`custom_shift_details = $${values.length}`);
+  }
+  const effectiveWorkDays = input.workDays ?? input.work_days;
+  if (effectiveWorkDays !== undefined) {
+    const workDaysStr = Array.isArray(effectiveWorkDays)
+      ? effectiveWorkDays.join(',')
+      : (effectiveWorkDays || 'Mon,Tue,Wed,Thu,Fri');
+    values.push(workDaysStr);
+    updates.push(`work_days = $${values.length}`);
   }
   const effectiveJoiningDate = input.joiningDate ?? input.joining_date;
   if (effectiveJoiningDate !== undefined) {

@@ -24,6 +24,7 @@ import type {
   doctorBulkRescheduleSchema,
   getSlotsQuerySchema,
   rescheduleAppointmentSchema,
+  updateAppointmentSchema,
   UpdateAvailabilitySchema,
   withdrawRescheduleRequestSchema,
 } from './appointments.schema.js';
@@ -33,6 +34,7 @@ type CreateRescheduleRequestInput = ValidatedData<{ body: typeof createReschedul
 type DeclineRescheduleRequestInput = ValidatedData<{ body: typeof declineRescheduleRequestSchema }>;
 type ChooseAlternativeSlotInput = ValidatedData<{ body: typeof chooseAlternativeSlotSchema }>;
 type WithdrawRescheduleRequestInput = ValidatedData<{ body: typeof withdrawRescheduleRequestSchema }>;
+type UpdateAppointmentInput = ValidatedData<{ body: typeof updateAppointmentSchema }>;
 
 // GET /appointments/doctor-calendar?date=YYYY-MM-DD
 export async function getDoctorCalendar(req: Request, res: Response): Promise<void> {
@@ -1327,6 +1329,24 @@ export async function rescheduleAppointment(
   }
   const idStr = String(req.params['id']);
   const appointment = await service.rescheduleAppointment(
+    idStr,
+    req.user.id,
+    input.body,
+    req.user.role,
+  );
+  res.status(200).json({ status: 'success', data: appointment });
+}
+
+export async function updateAppointment(
+  input: UpdateAppointmentInput,
+  req: Request,
+  res: Response,
+): Promise<void> {
+  if (!req.user) {
+    throw new UnauthorizedError('Authentication required.');
+  }
+  const idStr = String(req.params['id']);
+  const appointment = await service.updateAppointment(
     idStr,
     req.user.id,
     input.body,

@@ -20,6 +20,7 @@ import { medicinesRouter } from '@/modules/medicines/medicines.routes.js';
 import { notificationsRouter } from '@/modules/notifications/notification.routes.js';
 import { ordersRouter } from '@/modules/orders/orders.routes.js';
 import { patientsRouter } from '@/modules/patients/patients.routes.js';
+import { patientTimelinesRouter } from '@/modules/patient_timelines/patientTimelines.routes.js';
 import { pharmacyRouter } from '@/modules/pharmacy/pharmacy.routes.js';
 import { pharmacyOrdersRouter } from '@/modules/pharmacy_orders/pharmacy_orders.routes.js';
 import { prescriptionTemplatesRouter } from '@/modules/prescription_templates/prescription_templates.routes.js';
@@ -80,5 +81,7 @@ apiRouter.use('/client-portals', clientPortalsRouter);
 apiRouter.use('/lab-portal', labPortalRouter);
 apiRouter.use('/', reviewsRouter);
 apiRouter.use('/staff', staffRouter);
+apiRouter.use('/admin/patient-timelines', patientTimelinesRouter);
+apiRouter.use('/patient-timelines', patientTimelinesRouter);
 
 

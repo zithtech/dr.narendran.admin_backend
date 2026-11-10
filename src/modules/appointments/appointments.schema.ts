@@ -1,10 +1,12 @@
 import { z } from 'zod';
 
 export const createAppointmentSchema = z.object({
-  slotId: z.string().uuid('Invalid slot ID'),
+  slotId: z.string().optional(),
   purpose: z.string().trim().min(1, 'Purpose is required'),
   doctorId: z.string().uuid().optional(),
   doctor_id: z.string().uuid().optional(),
+  patientId: z.string().uuid().optional(),
+  patient_id: z.string().uuid().optional(),
   patientNote: z
     .string()
     .trim()
@@ -12,6 +14,8 @@ export const createAppointmentSchema = z.object({
     .optional(),
   patientName: z.string().trim().optional(),
   patientPhone: z.string().trim().optional(),
+  appointmentDate: z.string().optional(),
+  appointmentTime: z.string().optional(),
 });
 
 export const doctorBookAppointmentSchema = z.object({
@@ -134,6 +138,26 @@ export const UpdateCustomAvailabilitySchema = z.object({
   start_time: z.string().regex(timeRegex, 'Must be in HH:MM format'),
   end_time: z.string().regex(timeRegex, 'Must be in HH:MM format'),
 });
+
+export const updateAppointmentSchema = z.object({
+  doctorId: z.string().uuid().optional(),
+  slotId: z.string().optional(),
+  scheduledStart: z.string().optional(),
+  scheduledEnd: z.string().optional(),
+  purpose: z.string().trim().min(1, 'Purpose cannot be empty').optional(),
+  patientNote: z.string().trim().max(500, 'Note must be under 500 characters').optional(),
+  status: z
+    .enum(['scheduled', 'confirmed', 'rescheduled', 'completed', 'cancelled', 'no_show'])
+    .optional(),
+  patientName: z.string().trim().optional(),
+  patientPhone: z.string().trim().optional(),
+  rescheduleReason: z.string().trim().max(300).optional(),
+  cancellationReason: z.string().trim().max(300).optional(),
+});
+
+export type UpdateAppointmentInput = {
+  body: z.infer<typeof updateAppointmentSchema>;
+};
 
 export const UpdateBlockedDateSchema = z.object({
   blocked_date: z.string().regex(dateRegex, 'Must be YYYY-MM-DD'),

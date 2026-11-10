@@ -83,13 +83,17 @@ export interface Appointment {
 }
 
 export interface CreateAppointmentPayload {
-  slotId: string;
+  slotId?: string | undefined;
   purpose: string;
   patientNote?: string | undefined;
   patientName?: string | undefined;
   patientPhone?: string | undefined;
+  patientId?: string | undefined;
+  patient_id?: string | undefined;
   doctorId?: string | undefined;
   doctor_id?: string | undefined;
+  appointmentDate?: string | undefined;
+  appointmentTime?: string | undefined;
 }
 
 export type CreateAppointmentInput = CreateAppointmentPayload;
@@ -101,6 +105,90 @@ export interface RescheduleAppointmentInput {
 
 export interface CancelAppointmentInput {
   reason?: string | undefined;
+}
+
+export interface AdminAppointmentFilter {
+  status?: string | undefined;
+  doctorId?: string | undefined;
+  patientId?: string | undefined;
+  date?: string | undefined;
+  search?: string | undefined;
+}
+
+export interface AdminAppointmentItem {
+  id: string;
+  patientId: string;
+  patientName: string;
+  patientPhone: string;
+  patientEmail?: string | undefined;
+  patientGender?: string | undefined;
+  patientDob?: string | undefined;
+  doctorId: string;
+  doctorName: string;
+  doctorSpecialty?: string | undefined;
+  doctorPhone?: string | undefined;
+  doctorEmail?: string | undefined;
+  branchName?: string | undefined;
+  hospitalName?: string | undefined;
+  slotId?: string | undefined;
+  scheduledStart: string;
+  scheduledEnd: string;
+  date: string;
+  time: string;
+  tokenNumber: string;
+  purpose: string;
+  patientNote?: string | undefined;
+  status: AppointmentStatus;
+  rescheduleReason?: string | undefined;
+  cancellationReason?: string | undefined;
+  cancelledBy?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DoctorScheduleAppointmentItem {
+  id: string;
+  patientId: string;
+  patientName: string;
+  patientPhone: string;
+  patientEmail?: string | undefined;
+  doctorId: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  date: string;
+  time: string;
+  tokenNumber: string;
+  purpose: string;
+  patientNote?: string | undefined;
+  status: AppointmentStatus;
+  rescheduleReason?: string | undefined;
+  cancellationReason?: string | undefined;
+  createdAt: string;
+}
+
+export interface DoctorScheduleSummary {
+  id: string;
+  userAccountId?: string | undefined;
+  name: string;
+  specialization: string;
+  phone?: string | undefined;
+  email?: string | undefined;
+  hospitalName?: string | undefined;
+  branchName?: string | undefined;
+  profileImageUrl?: string | undefined;
+  stats: {
+    total: number;
+    scheduled: number;
+    completed: number;
+    cancelled: number;
+  };
+  appointments: DoctorScheduleAppointmentItem[];
+}
+
+export interface DoctorDailyScheduleResult {
+  date: string;
+  totalAppointments: number;
+  doctors: DoctorScheduleSummary[];
 }
 
 export interface DoctorAvailabilityItem {

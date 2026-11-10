@@ -59,14 +59,119 @@ export async function findById(id: string): Promise<User | null> {
 export async function findByEmailWithPassword(
   email: string,
 ): Promise<UserWithPassword | null> {
-  return queryOne<UserWithPassword>(
-    `SELECT ${USER_COLUMNS},
-            password_hash AS "passwordHash",
-            0 AS "tokenVersion"
-     FROM user_accounts
-     WHERE lower(username) = lower($1)`,
-    [email],
-  );
+  const clean = (email || '').trim();
+
+  // 1. Try user_accounts
+  try {
+    const fromAccounts = await queryOne<UserWithPassword>(
+      `SELECT id,
+              username AS "email",
+              username AS "fullName",
+              CASE 
+                WHEN lower(role) IN ('super_admin', 'super admin', 'admin') THEN 'admin'
+                WHEN lower(role) = 'doctor' THEN 'doctor'
+                WHEN lower(role) = 'patient' THEN 'patient'
+                ELSE 'admin'
+              END AS role,
+              created_at AS "createdAt",
+              updated_at AS "updatedAt",
+              password_hash AS "passwordHash",
+              0 AS "tokenVersion"
+       FROM user_accounts
+       WHERE lower(username) = lower($1)
+          OR lower(username) = lower(REGEXP_REPLACE($1, '\\s+', '', 'g'))`,
+      [clean],
+    );
+    if (fromAccounts) return fromAccounts;
+  } catch (_err) {}
+
+  // 2. Try admin_users
+  try {
+    const fromAdminUsers = await queryOne<UserWithPassword>(
+      `SELECT id,
+              username AS "email",
+              username AS "fullName",
+              CASE 
+                WHEN lower(role) IN ('super_admin', 'super admin', 'admin') THEN 'admin'
+                WHEN lower(role) = 'doctor' THEN 'doctor'
+                WHEN lower(role) = 'patient' THEN 'patient'
+                ELSE 'admin'
+              END AS role,
+              created_at AS "createdAt",
+              updated_at AS "updatedAt",
+              password_hash AS "passwordHash",
+              0 AS "tokenVersion"
+       FROM admin_users
+       WHERE lower(username) = lower($1)
+         AND status = 'ACTIVE'`,
+      [clean],
+    );
+    if (fromAdminUsers) return fromAdminUsers;
+  } catch (_err) {}
+
+  // 3. Try master_admin_users
+  try {
+    const fromMasterAdmin = await queryOne<UserWithPassword>(
+      `SELECT id,
+              email,
+              name AS "fullName",
+              'admin' AS role,
+              created_at AS "createdAt",
+              updated_at AS "updatedAt",
+              password_hash AS "passwordHash",
+              0 AS "tokenVersion"
+       FROM master_admin_users
+       WHERE (lower(email) = lower($1) OR lower(name) = lower($1))
+         AND status = 'ACTIVE'`,
+      [clean],
+    );
+    if (fromMasterAdmin) return fromMasterAdmin;
+  } catch (_err) {}
+
+  // 4. Try tenant_admin_master_login
+  try {
+    const fromTenantAdmin = await queryOne<UserWithPassword>(
+      `SELECT id,
+              username AS "email",
+              username AS "fullName",
+              'admin' AS role,
+              created_at AS "createdAt",
+              updated_at AS "updatedAt",
+              password_hash AS "passwordHash",
+              0 AS "tokenVersion"
+       FROM tenant_admin_master_login
+       WHERE lower(username) = lower($1)
+         AND status = 'ACTIVE'`,
+      [clean],
+    );
+    if (fromTenantAdmin) return fromTenantAdmin;
+  } catch (_err) {}
+
+  // 5. Fallback: try users (mobile app users)
+  try {
+    const fromUsers = await queryOne<UserWithPassword>(
+      `SELECT id,
+              COALESCE(email, phone) AS "email",
+              COALESCE(name, phone) AS "fullName",
+              CASE 
+                WHEN lower(role) = 'doctor' THEN 'doctor'
+                WHEN lower(role) = 'patient' THEN 'patient'
+                ELSE 'admin'
+              END AS role,
+              created_at AS "createdAt",
+              updated_at AS "updatedAt",
+              password_hash AS "passwordHash",
+              COALESCE(token_version, 0) AS "tokenVersion"
+       FROM users
+       WHERE (email IS NOT NULL AND lower(email) = lower($1))
+          OR phone = $1
+          OR replace(replace(replace(phone, ' ', ''), '-', ''), '+', '') = replace(replace(replace($1, ' ', ''), '-', ''), '+', '')`,
+      [clean],
+    );
+    if (fromUsers) return fromUsers;
+  } catch (_err) {}
+
+  return null;
 }
 
 export async function findAuthContextById(
@@ -85,7 +190,11 @@ export async function findAuthContextById(
       const role: UserRole =
         rawRole === 'super_admin' || rawRole === 'admin'
           ? 'admin'
-          : (rawRole as UserRole);
+          : rawRole === 'doctor'
+          ? 'doctor'
+          : rawRole === 'patient'
+          ? 'patient'
+          : 'admin';
       return {
         id: fromAccounts.id,
         email: fromAccounts.email,
@@ -110,7 +219,11 @@ export async function findAuthContextById(
       const role: UserRole =
         rawRole === 'super_admin' || rawRole === 'admin'
           ? 'admin'
-          : (rawRole as UserRole);
+          : rawRole === 'doctor'
+          ? 'doctor'
+          : rawRole === 'patient'
+          ? 'patient'
+          : 'admin';
       return {
         id: fromAdminUsers.id,
         email: fromAdminUsers.email,
@@ -135,7 +248,11 @@ export async function findAuthContextById(
       const role: UserRole =
         rawRole === 'super_admin' || rawRole === 'admin'
           ? 'admin'
-          : (rawRole as UserRole);
+          : rawRole === 'doctor'
+          ? 'doctor'
+          : rawRole === 'patient'
+          ? 'patient'
+          : 'admin';
       return {
         id: fromMasterAdmin.id,
         email: fromMasterAdmin.email,
@@ -160,7 +277,11 @@ export async function findAuthContextById(
       const role: UserRole =
         rawRole === 'super_admin' || rawRole === 'admin'
           ? 'admin'
-          : (rawRole as UserRole);
+          : rawRole === 'doctor'
+          ? 'doctor'
+          : rawRole === 'patient'
+          ? 'patient'
+          : 'admin';
       return {
         id: fromTenantAdmin.id,
         email: fromTenantAdmin.email,

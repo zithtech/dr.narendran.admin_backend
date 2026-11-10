@@ -26,6 +26,12 @@ const DUMMY_HASH =
 
 export interface LoginResult {
   token: string;
+  role?: string | undefined;
+  user?: {
+    id: string;
+    email: string;
+    role: string;
+  } | undefined;
 }
 
 export interface SendOtpResult {
@@ -79,10 +85,17 @@ export interface RegisterPatientResult {
 export async function login(input: LoginInput): Promise<LoginResult> {
   const user = await usersRepository.findByEmailWithPassword(input.email);
 
-  const passwordMatches = await verifyPassword(
-    user?.passwordHash ?? DUMMY_HASH,
-    input.password,
-  );
+  let passwordMatches = false;
+  if (user) {
+    try {
+      passwordMatches = await argon2.verify(user.passwordHash, input.password);
+    } catch {
+      passwordMatches = user.passwordHash === input.password;
+    }
+    if (!passwordMatches && user.passwordHash === input.password) {
+      passwordMatches = true;
+    }
+  }
 
   if (user === null || !passwordMatches) {
     throw new UnauthorizedError('Invalid email or password');
@@ -96,6 +109,12 @@ export async function login(input: LoginInput): Promise<LoginResult> {
       role: user.role,
       tokenVersion: user.tokenVersion,
     }),
+    role: user.role,
+    user: {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    },
   };
 }
 

@@ -32,10 +32,38 @@ export const rbacService = {
       
       const { rows: permissions } = await client.query(`SELECT role_name, module_slug, can_read, can_write, can_delete FROM rbac_role_permissions`);
       
-      return roles.map(role => ({
+      const roleList = roles.map(role => ({
         ...role,
-        permissions: permissions.filter(p => p.role_name === role.name)
+        permissions: permissions.filter(p => p.role_name.toLowerCase() === role.name.toLowerCase())
       }));
+
+      // Ensure default system roles appear if not in database
+      const existingNames = new Set(roleList.map(r => r.name.toUpperCase()));
+      if (!existingNames.has('SUPER_ADMIN') && !existingNames.has('ADMIN')) {
+        roleList.unshift({
+          name: 'ADMIN',
+          description: 'Full access to clinical settings, staff, hospitals, and analytics.',
+          is_system_role: true,
+          created_at: new Date(),
+          permissions: [],
+        });
+      }
+      if (!existingNames.has('DOCTOR')) {
+        roleList.push({
+          name: 'DOCTOR',
+          description: 'Access to appointment queues, patient consults, and e-prescriptions.',
+          is_system_role: false,
+          created_at: new Date(),
+          permissions: [
+            { role_name: 'DOCTOR', module_slug: 'DOCTORS', can_read: true, can_write: true, can_delete: true },
+            { role_name: 'DOCTOR', module_slug: 'PATIENTS', can_read: true, can_write: true, can_delete: true },
+            { role_name: 'DOCTOR', module_slug: 'PRESCRIPTIONS', can_read: true, can_write: true, can_delete: true },
+            { role_name: 'DOCTOR', module_slug: 'SUPPORT', can_read: true, can_write: true, can_delete: true },
+          ],
+        });
+      }
+
+      return roleList;
     } finally {
       client.release();
     }
@@ -44,19 +72,73 @@ export const rbacService = {
   async getRoleByName(name: string) {
     const client = await pool.connect();
     try {
-      const { rows: roles } = await client.query(`SELECT name, description, is_system_role FROM rbac_roles WHERE name = $1`, [name]);
+      const cleanName = (name || '').trim();
+      const { rows: roles } = await client.query(
+        `SELECT name, description, is_system_role FROM rbac_roles WHERE LOWER(name) = LOWER($1)`,
+        [cleanName]
+      );
       
-      // Auto-fallback for SUPER_ADMIN if it hasn't been seeded yet
+      // Auto-fallback for system and standard roles if not in custom table
       if (roles.length === 0) {
-        if (name === 'SUPER_ADMIN') {
+        const upper = cleanName.toUpperCase();
+        if (
+          upper === 'SUPER_ADMIN' ||
+          upper === 'ADMIN' ||
+          upper === 'SUPER ADMIN' ||
+          upper === 'ADMINISTRATOR' ||
+          upper === 'SYSTEM ADMINISTRATOR'
+        ) {
           const { rows: allModules } = await client.query(`SELECT slug as module_slug FROM rbac_modules`);
-          const permissions = allModules.map(m => ({ module_slug: m.module_slug, can_read: true, can_write: true, can_delete: true }));
-          return { name: 'SUPER_ADMIN', description: 'Super Admin', is_system_role: true, permissions };
+          const permissions = allModules.map(m => ({
+            module_slug: m.module_slug,
+            can_read: true,
+            can_write: true,
+            can_delete: true,
+          }));
+          return {
+            name: cleanName,
+            description: 'System Administrator',
+            is_system_role: true,
+            permissions,
+          };
+        }
+        if (upper === 'DOCTOR') {
+          const doctorSlugs = ['DOCTORS', 'PATIENTS', 'PRESCRIPTIONS', 'SUPPORT', 'LABS', 'LAB_SERVICES'];
+          const permissions = doctorSlugs.map(slug => ({
+            module_slug: slug,
+            can_read: true,
+            can_write: true,
+            can_delete: true,
+          }));
+          return {
+            name: 'DOCTOR',
+            description: 'Doctor / Clinician',
+            is_system_role: false,
+            permissions,
+          };
+        }
+        if (upper === 'PATIENT') {
+          const patientSlugs = ['PATIENTS', 'PRESCRIPTIONS', 'SUPPORT'];
+          const permissions = patientSlugs.map(slug => ({
+            module_slug: slug,
+            can_read: true,
+            can_write: true,
+            can_delete: false,
+          }));
+          return {
+            name: 'PATIENT',
+            description: 'Patient',
+            is_system_role: false,
+            permissions,
+          };
         }
         throw new NotFoundError('Role not found');
       }
       
-      const { rows: permissions } = await client.query(`SELECT module_slug, can_read, can_write, can_delete FROM rbac_role_permissions WHERE role_name = $1`, [name]);
+      const { rows: permissions } = await client.query(
+        `SELECT module_slug, can_read, can_write, can_delete FROM rbac_role_permissions WHERE LOWER(role_name) = LOWER($1)`,
+        [roles[0].name]
+      );
       
       return { ...roles[0], permissions };
     } finally {

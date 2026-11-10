@@ -7,6 +7,73 @@ import pg from 'pg';
 import * as pgMigrate from 'node-pg-migrate';
 import crypto from 'crypto';
 
+let masterTablesEnsured = false;
+
+export async function ensureMasterTables(client?: any): Promise<void> {
+  if (masterTablesEnsured) return;
+  const dbClient = client || (await pool.connect());
+  const shouldRelease = !client;
+  try {
+    await dbClient.query(`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_code varchar(50) NOT NULL UNIQUE,
+        tenant_name varchar(255) NOT NULL,
+        database_name varchar(255) NOT NULL UNIQUE,
+        status varchar(50) NOT NULL DEFAULT 'ACTIVE',
+        created_at timestamp with time zone NOT NULL DEFAULT current_timestamp,
+        updated_at timestamp with time zone NOT NULL DEFAULT current_timestamp
+      );
+
+      CREATE TABLE IF NOT EXISTS tenant_admin_master_login (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id uuid REFERENCES tenants(id) ON DELETE CASCADE,
+        username varchar(255) NOT NULL UNIQUE,
+        password_hash text NOT NULL,
+        phone varchar(50),
+        role varchar(50) NOT NULL DEFAULT 'SUPER_ADMIN',
+        status varchar(50) NOT NULL DEFAULT 'ACTIVE',
+        created_at timestamp with time zone NOT NULL DEFAULT current_timestamp,
+        updated_at timestamp with time zone NOT NULL DEFAULT current_timestamp
+      );
+
+      CREATE TABLE IF NOT EXISTS master_admin_users (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        name varchar(255) NOT NULL,
+        email varchar(255) NOT NULL UNIQUE,
+        password_hash text NOT NULL,
+        role varchar(50) NOT NULL DEFAULT 'Super Admin',
+        status varchar(50) NOT NULL DEFAULT 'ACTIVE',
+        reset_token varchar(255),
+        reset_token_expires_at timestamp with time zone,
+        created_at timestamp with time zone NOT NULL DEFAULT current_timestamp,
+        updated_at timestamp with time zone NOT NULL DEFAULT current_timestamp
+      );
+    `);
+
+    // Check if master_admin_users has any users; if not, seed default admin
+    const countRes = await dbClient.query('SELECT COUNT(*) as count FROM master_admin_users');
+    if (parseInt(countRes.rows[0]?.count || '0', 10) === 0) {
+      const { hash } = await import('argon2');
+      const pwdHash = await hash('admin');
+      await dbClient.query(`
+        INSERT INTO master_admin_users (name, email, password_hash, role, status)
+        VALUES 
+          ('Master Admin', 'master@drnarendran.com', $1, 'Super Admin', 'ACTIVE'),
+          ('Admin', 'admin', $1, 'Super Admin', 'ACTIVE')
+        ON CONFLICT DO NOTHING
+      `, [pwdHash]);
+    }
+    masterTablesEnsured = true;
+  } catch (err) {
+    console.error('Error auto-creating master tables:', err);
+  } finally {
+    if (shouldRelease) {
+      dbClient.release();
+    }
+  }
+}
+
 export class MasterService {
   /**
    * Creates a new tenant, provisions their database, and runs migrations.
@@ -28,6 +95,7 @@ export class MasterService {
     let tenantId: number;
 
     try {
+      await ensureMasterTables(client);
       await client.query('BEGIN');
 
       // 2. Insert into tenants table
@@ -199,6 +267,7 @@ export class MasterService {
   async listTenantAdmins() {
     const client = await pool.connect();
     try {
+      await ensureMasterTables(client);
       const {rows} = await client.query(`
         SELECT t.id as tenant_id, t.tenant_code, t.tenant_name, t.database_name,
                a.id as admin_id, a.name as admin_name, a.username, a.status as admin_status, a.phone, a.role as admin_role
@@ -505,6 +574,7 @@ export class MasterService {
   async listMasterAdminUsers() {
     const client = await pool.connect();
     try {
+      await ensureMasterTables(client);
       const {rows} = await client.query(
         'SELECT id, name, email, role, status, created_at FROM master_admin_users ORDER BY created_at DESC',
       );

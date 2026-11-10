@@ -628,7 +628,21 @@ export async function savePrescription(req: Request, res: Response): Promise<voi
     return;
   }
 
-  const doctorId = await repo.getDoctorIdByUserId(req.user.id);
+  const bodyObj = req.body as Record<string, any>;
+  let doctorId = bodyObj?.['doctorId'] || bodyObj?.['doctor_id'];
+  if (!doctorId) {
+    doctorId = await repo.getDoctorIdByUserId(req.user.id);
+  }
+  if (!doctorId && appointmentId) {
+    const { pool: pInst } = await import('@/db/pool.js');
+    const apptDoc = await pInst.query('SELECT doctor_id FROM appointments WHERE id = $1', [appointmentId]);
+    doctorId = apptDoc.rows[0]?.doctor_id || null;
+  }
+  if (!doctorId) {
+    const { pool: pInst } = await import('@/db/pool.js');
+    const defDoc = await pInst.query('SELECT id FROM doctors WHERE is_active = true LIMIT 1');
+    doctorId = defDoc.rows[0]?.id || null;
+  }
 
   const { pool } = await import('@/db/pool.js');
   const client = await pool.connect();
@@ -1946,10 +1960,10 @@ export async function downloadPrescriptionPdf(req: Request, res: Response): Prom
         hb.address as branch_address,
         hb.phone as branch_phone
      FROM prescriptions p
-     JOIN appointments a ON p.appointment_id = a.id
-     JOIN user_accounts pt ON a.patient_id = pt.id
-     LEFT JOIN patients pat ON pat.user_account_id = pt.id
-     JOIN doctors d ON a.doctor_id = d.id
+     LEFT JOIN patients pat ON p.patient_id = pat.id
+     LEFT JOIN appointments a ON p.appointment_id = a.id
+     LEFT JOIN user_accounts pt ON pat.user_account_id = pt.id
+     LEFT JOIN doctors d ON (p.doctor_id = d.id OR a.doctor_id = d.id)
      LEFT JOIN hospitals h ON d.hospital_id = h.id
      LEFT JOIN hospital_branches hb ON d.branch_id = hb.id
      WHERE p.id = $1`,
@@ -2105,10 +2119,10 @@ export async function downloadPrescriptionHtml(req: Request, res: Response): Pro
             h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone,
             pat.gender, pat.date_of_birth, a.id as appointment_uuid
      FROM prescriptions p
-     JOIN appointments a ON p.appointment_id = a.id
-     JOIN user_accounts pt ON a.patient_id = pt.id
-     LEFT JOIN patients pat ON pat.user_account_id = pt.id
-     JOIN doctors d ON a.doctor_id = d.id
+     LEFT JOIN patients pat ON p.patient_id = pat.id
+     LEFT JOIN appointments a ON p.appointment_id = a.id
+     LEFT JOIN user_accounts pt ON pat.user_account_id = pt.id
+     LEFT JOIN doctors d ON (p.doctor_id = d.id OR a.doctor_id = d.id)
      LEFT JOIN hospitals h ON d.hospital_id = h.id
      WHERE p.id = $1`,
     [prescriptionId]

@@ -15,8 +15,16 @@ prescriptionsRouter.patch("/schedule/:id/skipped", requireAuth, MedicineSchedule
 prescriptionsRouter.get("/schedule/patient/:patientId/monitoring", requireAuth, MedicineScheduleController.getDoctorMonitoring);
 prescriptionsRouter.post("/schedule/check-reminders", MedicineScheduleController.checkReminders);
 
-// Existing prescription endpoints
-prescriptionsRouter.get("/", PrescriptionsController.getAll);
-prescriptionsRouter.get("/history", PrescriptionsController.getHistory);
-prescriptionsRouter.get("/:id", requireAuth, PrescriptionsController.getById);
+// Prescription endpoints
+prescriptionsRouter.get("/", requireAuth, PrescriptionsController.getAll);
+prescriptionsRouter.get("/history", requireAuth, PrescriptionsController.getHistory);
+prescriptionsRouter.get("/patient/:patientId", requireAuth, PrescriptionsController.getByPatient);
+prescriptionsRouter.get("/appointment/:appointmentId", requireAuth, PrescriptionsController.getByAppointment);
+
+prescriptionsRouter.post("/", requireAuth, PrescriptionsController.create);
+prescriptionsRouter.put("/:id", requireAuth, PrescriptionsController.update);
+
+prescriptionsRouter.get("/:id/pdf", PrescriptionsController.downloadPdf);
+prescriptionsRouter.get("/:id/html", PrescriptionsController.downloadHtml);
 prescriptionsRouter.get("/:id/medicines", requireAuth, PrescriptionsController.getMedicines);
+prescriptionsRouter.get("/:id", requireAuth, PrescriptionsController.getById);

@@ -38,7 +38,11 @@ export const TenantAuthController = {
       const role: UserRole =
         rawRole === 'super_admin' || rawRole === 'admin'
           ? 'admin'
-          : (rawRole as UserRole);
+          : rawRole === 'doctor'
+          ? 'doctor'
+          : rawRole === 'patient'
+          ? 'patient'
+          : 'admin';
 
       const token = signAccessToken({
         sub: String(user.id),
@@ -47,7 +51,7 @@ export const TenantAuthController = {
         tokenVersion: 0,
       });
 
-      res.json({ token, role: user.role });
+      res.json({ token, role: user.role, id: user.id, username: user.username });
     } catch (err: any) {
       if (
         err.message === 'Tenant not found' ||
@@ -81,7 +85,11 @@ export const TenantAuthController = {
       const role: UserRole =
         rawRole === 'super_admin' || rawRole === 'admin'
           ? 'admin'
-          : (rawRole as UserRole);
+          : rawRole === 'doctor'
+          ? 'doctor'
+          : rawRole === 'patient'
+          ? 'patient'
+          : 'admin';
 
       const token = signAccessToken({
         sub: String(user.id),
@@ -90,7 +98,7 @@ export const TenantAuthController = {
         tokenVersion: 0,
       });
 
-      res.json({ token, role: user.role });
+      res.json({ token, role: user.role, id: user.id, username: user.username });
     } catch (err: any) {
       if (
         err.message === 'Invalid credentials' ||

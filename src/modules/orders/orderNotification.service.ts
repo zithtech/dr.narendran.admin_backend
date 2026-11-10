@@ -19,8 +19,8 @@ export class OrderNotificationService {
   ): Promise<{ sent: boolean; reason?: string }> {
     const client = await pool.connect();
     try {
-      // 1. Fetch order details from pharmacy_orders or orders
-      let orderRes = await client.query(
+      // 1. Fetch order details from pharmacy_orders
+      const orderRes = await client.query(
         `SELECT id::text as id, order_number, user_id::text as user_id, patient_id::text as patient_id, status 
          FROM pharmacy_orders 
          WHERE id::text = $1 OR order_number = $1 
@@ -28,18 +28,7 @@ export class OrderNotificationService {
         [orderId],
       );
 
-      let order = orderRes.rows[0];
-
-      if (!order) {
-        orderRes = await client.query(
-          `SELECT id::text as id, order_number, user_id::text as user_id, NULL as patient_id, status 
-           FROM orders 
-           WHERE id::text = $1 OR order_number = $1 
-           LIMIT 1`,
-          [orderId],
-        );
-        order = orderRes.rows[0];
-      }
+      const order = orderRes.rows[0];
 
       if (!order) {
         logger.warn({ orderId }, "[OrderNotification] Order not found for notification dispatch");

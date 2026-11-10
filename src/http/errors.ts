@@ -41,8 +41,8 @@ export abstract class AppError extends Error {
   /** Optional structured detail, e.g. per-field Zod issues. */
   readonly details?: unknown;
 
-  constructor(message: string, options?: {details?: unknown; cause?: unknown}) {
-    super(message, options?.cause === undefined ? {} : {cause: options.cause});
+  constructor(message: string, options?: { details?: unknown; cause?: unknown }) {
+    super(message, options?.cause === undefined ? {} : { cause: options.cause });
     this.name = new.target.name;
     if (options?.details !== undefined) {
       this.details = options.details;
@@ -53,6 +53,11 @@ export abstract class AppError extends Error {
 
 /** 400 - the request itself is malformed or fails schema validation. */
 export class ValidationError extends AppError {
+  readonly statusCode = 400;
+  readonly code = ErrorCode.VALIDATION;
+}
+
+export class BadRequestError extends AppError {
   readonly statusCode = 400;
   readonly code = ErrorCode.VALIDATION;
 }
@@ -71,7 +76,7 @@ export class UnauthorizedError extends AppError {
 
   constructor(
     message = 'Authentication required.',
-    options?: {cause?: unknown},
+    options?: { cause?: unknown },
   ) {
     super(message, options);
   }
@@ -126,7 +131,7 @@ export class InternalError extends AppError {
   readonly code = ErrorCode.INTERNAL;
   override readonly expose = false;
 
-  constructor(message = 'Internal server error.', options?: {cause?: unknown}) {
+  constructor(message = 'Internal server error.', options?: { cause?: unknown }) {
     super(message, options);
   }
 }

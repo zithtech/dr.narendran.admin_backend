@@ -123,13 +123,21 @@ export function formatDoctorInfo(row: any, hospitals: DoctorHospitalInfo[] = [])
     ? row.qualifications
     : (spec.includes('Oncology') ? 'MBBS, MS, MCh (Surgical Oncology)' : 'MBBS, MD');
 
+  const avgRating = row.average_rating
+    ? String(Number(row.average_rating).toFixed(1))
+    : (row.rating || '5.0');
+  const totalReviews =
+    row.total_reviews !== undefined && row.total_reviews !== null
+      ? String(row.total_reviews)
+      : (row.reviews || '0');
+
   return {
     id: row.id,
     name,
     specialty: spec,
     clinic: clinicName,
-    rating: '4.8',
-    reviews: '128',
+    rating: avgRating,
+    reviews: totalReviews,
     experience,
     degrees,
     languages: 'English, Tamil',
@@ -238,10 +246,21 @@ export class DoctorsService {
           d.profile_image_url,
           d.podcast_url,
           d.created_at,
-          d.updated_at
+          d.updated_at,
+          dr_stats.average_rating,
+          COALESCE(dr_stats.total_reviews, 0) AS total_reviews
         FROM doctors d
         LEFT JOIN hospitals h ON d.hospital_id = h.id
         LEFT JOIN hospital_branches b ON d.branch_id = b.id
+        LEFT JOIN (
+          SELECT 
+            doctor_id, 
+            ROUND(AVG(rating)::numeric, 1) AS average_rating,
+            COUNT(*)::int AS total_reviews
+          FROM doctor_reviews 
+          WHERE status = 'ACTIVE'
+          GROUP BY doctor_id
+        ) dr_stats ON (dr_stats.doctor_id = d.id OR dr_stats.doctor_id = d.user_account_id)
         WHERE 1=1
       `;
 
@@ -309,10 +328,21 @@ export class DoctorsService {
           d.profile_image_url,
           d.podcast_url,
           d.created_at,
-          d.updated_at
+          d.updated_at,
+          dr_stats.average_rating,
+          COALESCE(dr_stats.total_reviews, 0) AS total_reviews
         FROM doctors d
         LEFT JOIN hospitals h ON d.hospital_id = h.id
         LEFT JOIN hospital_branches b ON d.branch_id = b.id
+        LEFT JOIN (
+          SELECT 
+            doctor_id, 
+            ROUND(AVG(rating)::numeric, 1) AS average_rating,
+            COUNT(*)::int AS total_reviews
+          FROM doctor_reviews 
+          WHERE status = 'ACTIVE'
+          GROUP BY doctor_id
+        ) dr_stats ON (dr_stats.doctor_id = d.id OR dr_stats.doctor_id = d.user_account_id)
         WHERE d.id = $1 OR d.user_account_id = $1
       `, [id]);
 

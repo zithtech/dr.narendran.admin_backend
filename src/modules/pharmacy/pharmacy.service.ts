@@ -1,6 +1,7 @@
-import { orderNotificationService } from "../orders/orderNotification.service.js";
 import { pool } from "@/db/pool.js";
 import { logger } from "@/lib/logger.js";
+
+import { orderNotificationService } from "../orders/orderNotification.service.js";
 
 export interface CreatePharmacyOrderInput {
   user_id?: string;
@@ -15,7 +16,7 @@ export interface CreatePharmacyOrderInput {
 }
 
 export class PharmacyService {
-  
+
   async getMyPharmacyOrders(query: { user_id?: string | undefined; patient_id?: string | undefined; status?: string | undefined }) {
     const client = await pool.connect();
     try {
@@ -78,17 +79,16 @@ export class PharmacyService {
         FROM pharmacy_orders po
         LEFT JOIN LATERAL (
           SELECT COUNT(*)::int as item_count
-          FROM order_items oi
-          WHERE oi.order_id::text = po.id::text
+          FROM pharmacy_order_items poi
+          WHERE poi.order_id::text = po.id::text
         ) ic ON true
         LEFT JOIN LATERAL (
           SELECT STRING_AGG(m.name, ', ') as preview
           FROM (
-            SELECT COALESCE(m2.name, oi2.dosage_instruction, 'Medicine') as name
-            FROM order_items oi2
-            LEFT JOIN medicines m2 ON m2.id::text = oi2.medicine_id::text
-            WHERE oi2.order_id::text = po.id::text
-            ORDER BY oi2.id ASC
+            SELECT COALESCE(poi2.medicine_name, 'Medicine') as name
+            FROM pharmacy_order_items poi2
+            WHERE poi2.order_id::text = po.id::text
+            ORDER BY poi2.id ASC
             LIMIT 2
           ) m
         ) meds ON true
@@ -185,13 +185,6 @@ export class PharmacyService {
 
       const order = orderRes.rows[0];
 
-      // Sync into orders table for consistency across endpoints
-      await client.query(`
-        INSERT INTO orders (id, order_number, user_id, total_amount, medicine_cost, delivery_charge, status, payment_status, created_at)
-        VALUES ($1, $2, $3, 535.00, 520.00, 15.00, 'placed', 'paid', NOW())
-        ON CONFLICT (id) DO NOTHING;
-      `, [order.id, generatedOrderNum, validUserId]);
-
       for (const item of itemsList) {
         const medName = item.medicine_name || "Prescribed Medicine";
 
@@ -204,24 +197,10 @@ export class PharmacyService {
           }
         }
 
-        // Validate medicine_id against medicines
-        let validMedId: string | null = null;
-        if (item.medicine_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(item.medicine_id))) {
-          const checkMed = await client.query('SELECT id FROM medicines WHERE id = $1', [item.medicine_id]);
-          if (checkMed.rows.length > 0) {
-            validMedId = String(item.medicine_id);
-          }
-        }
-
         await client.query(`
           INSERT INTO pharmacy_order_items (order_id, medicine_id, medicine_name, quantity)
           VALUES ($1, $2, $3, $4)
         `, [order.id, validRxMedId, medName, item.quantity || 1]);
-
-        await client.query(`
-          INSERT INTO order_items (order_id, medicine_id, quantity, dosage_instruction, days)
-          VALUES ($1, $2, $3, $4, '7 days')
-        `, [order.id, validMedId, `${item.quantity || 1} units`, medName]);
       }
 
       await client.query(`

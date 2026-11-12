@@ -76,6 +76,7 @@ apiRouter.use('/admin/orders', ordersRouter);
 apiRouter.use('/patient/feedback', feedbackRouter);
 
 apiRouter.use('/rbac', rbacRouter);
+apiRouter.use('/roles', rbacRouter);
 apiRouter.use('/client-portals', clientPortalsRouter);
 apiRouter.use('/lab-portal', labPortalRouter);
 apiRouter.use('/', reviewsRouter);

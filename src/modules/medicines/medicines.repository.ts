@@ -967,69 +967,152 @@ export async function bulkImportMedicines(input: BulkImportInput) {
 }
 
 
-export async function listPackages(doctorId: string) {
+export async function listPackages(doctorId?: string | null) {
   const { rows } = await pool.query(
-    `SELECT p.id, p.name, p.doctor_id,
+    `SELECT p.id, p.name, p.description, p.doctor_id, p.created_at, p.updated_at,
+       d.name as doctor_name,
        COALESCE((SELECT json_agg(json_build_object(
          'id', m.id,
          'medicine_name', m.medicine_name,
+         'generic_name', m.generic_name,
          'dosage_form', m.dosage_form,
          'strength', m.strength,
+         'strength_unit', m.strength_unit,
+         'therapeutic_category', m.therapeutic_category,
+         'sub_category', m.sub_category,
+         'manufacturer', m.manufacturer,
+         'prescription_required', m.prescription_required,
+         'status', m.status,
+         'medicine_code', m.medicine_code,
+         'barcode', m.barcode,
+         'mrp', m.mrp,
+         'discount_type', m.discount_type,
+         'discount_value', m.discount_value,
+         'final_price', m.final_price,
          'duration', m.duration,
-         'frequency', m.frequency
+         'frequency', m.frequency,
+         'description', m.description
        )) FROM medicine_package_items i
        JOIN medicines m ON i.medicine_id = m.id
        WHERE i.package_id = p.id), '[]'::json) as medicines
      FROM medicine_packages p
-     WHERE p.doctor_id = $1
+     LEFT JOIN doctors d ON p.doctor_id = d.id
+     ${doctorId ? 'WHERE (p.doctor_id = $1 OR p.doctor_id IS NULL)' : ''}
      ORDER BY p.created_at DESC`,
-    [doctorId]
+    doctorId ? [doctorId] : []
   );
   return rows;
 }
 
-export async function createPackage(doctorId: string, input: CreatePackageInput) {
-  return withTransaction(async (client) => {
-    const rows = await client.query<any>(
-      `INSERT INTO medicine_packages (doctor_id, name) VALUES ($1, $2) RETURNING *`,
-      [doctorId, input.name]
-    );
-    const pkg = rows[0];
-
-    for (const medId of input.medicineIds) {
-      await client.query(
-        `INSERT INTO medicine_package_items (package_id, medicine_id) VALUES ($1, $2)`,
-        [pkg.id, medId]
-      );
-    }
-    
-    return pkg;
-  });
+export async function getPackageById(id: string) {
+  const { rows } = await pool.query(
+    `SELECT p.id, p.name, p.description, p.doctor_id, p.created_at, p.updated_at,
+       d.name as doctor_name,
+       COALESCE((SELECT json_agg(json_build_object(
+         'id', m.id,
+         'medicine_name', m.medicine_name,
+         'generic_name', m.generic_name,
+         'dosage_form', m.dosage_form,
+         'strength', m.strength,
+         'strength_unit', m.strength_unit,
+         'therapeutic_category', m.therapeutic_category,
+         'sub_category', m.sub_category,
+         'manufacturer', m.manufacturer,
+         'prescription_required', m.prescription_required,
+         'status', m.status,
+         'medicine_code', m.medicine_code,
+         'barcode', m.barcode,
+         'mrp', m.mrp,
+         'discount_type', m.discount_type,
+         'discount_value', m.discount_value,
+         'final_price', m.final_price,
+         'duration', m.duration,
+         'frequency', m.frequency,
+         'description', m.description
+       )) FROM medicine_package_items i
+       JOIN medicines m ON i.medicine_id = m.id
+       WHERE i.package_id = p.id), '[]'::json) as medicines
+     FROM medicine_packages p
+     LEFT JOIN doctors d ON p.doctor_id = d.id
+     WHERE p.id = $1`,
+    [id]
+  );
+  return rows[0] || null;
 }
 
-export async function updatePackage(id: string, doctorId: string, input: UpdatePackageInput) {
-  return withTransaction(async (client) => {
+export async function createPackage(doctorId: string | null | undefined, input: CreatePackageInput) {
+  const pkgId = await withTransaction(async (client) => {
     const rows = await client.query<any>(
-      `UPDATE medicine_packages SET name = $1, updated_at = current_timestamp WHERE id = $2 AND doctor_id = $3 RETURNING *`,
-      [input.name, id, doctorId]
+      `INSERT INTO medicine_packages (doctor_id, name, description) VALUES ($1, $2, $3) RETURNING id`,
+      [doctorId || null, input.name.trim(), input.description?.trim() || null]
     );
-    if (rows.length === 0) throw new Error("Package not found or you do not have permission");
     const pkg = rows[0];
+
+    if (input.medicineIds && input.medicineIds.length > 0) {
+      for (const medId of input.medicineIds) {
+        await client.query(
+          `INSERT INTO medicine_package_items (package_id, medicine_id) VALUES ($1, $2)`,
+          [pkg.id, medId]
+        );
+      }
+    }
+    
+    return pkg.id;
+  });
+
+  return getPackageById(pkgId);
+}
+
+export async function updatePackage(id: string, doctorId: string | null | undefined, input: UpdatePackageInput) {
+  await withTransaction(async (client) => {
+    const checkQuery = doctorId 
+      ? `SELECT * FROM medicine_packages WHERE id = $1 AND (doctor_id = $2 OR doctor_id IS NULL)`
+      : `SELECT * FROM medicine_packages WHERE id = $1`;
+    const checkParams = doctorId ? [id, doctorId] : [id];
+    const existing = await client.query<any>(checkQuery, checkParams);
+    if (existing.length === 0) {
+      throw new Error("Package not found or you do not have permission");
+    }
+
+    await client.query<any>(
+      `UPDATE medicine_packages 
+       SET name = $1, description = $2, updated_at = current_timestamp 
+       WHERE id = $3`,
+      [
+        input.name.trim(),
+        input.description !== undefined ? (input.description?.trim() || null) : existing[0].description,
+        id
+      ]
+    );
 
     await client.query(`DELETE FROM medicine_package_items WHERE package_id = $1`, [id]);
 
-    for (const medId of input.medicineIds) {
-      await client.query(
-        `INSERT INTO medicine_package_items (package_id, medicine_id) VALUES ($1, $2)`,
-        [pkg.id, medId]
-      );
+    if (input.medicineIds && input.medicineIds.length > 0) {
+      for (const medId of input.medicineIds) {
+        await client.query(
+          `INSERT INTO medicine_package_items (package_id, medicine_id) VALUES ($1, $2)`,
+          [id, medId]
+        );
+      }
     }
-
-    return pkg;
   });
+
+  return getPackageById(id);
 }
 
-export async function deletePackage(id: string, doctorId: string) {
-  await pool.query(`DELETE FROM medicine_packages WHERE id = $1 AND doctor_id = $2`, [id, doctorId]);
+export async function deletePackage(id: string, doctorId?: string | null) {
+  return withTransaction(async (client) => {
+    const checkQuery = doctorId 
+      ? `SELECT * FROM medicine_packages WHERE id = $1 AND (doctor_id = $2 OR doctor_id IS NULL)`
+      : `SELECT * FROM medicine_packages WHERE id = $1`;
+    const checkParams = doctorId ? [id, doctorId] : [id];
+    const existing = await client.query<any>(checkQuery, checkParams);
+    if (existing.length === 0) {
+      throw new Error("Package not found or you do not have permission");
+    }
+
+    await client.query(`DELETE FROM medicine_package_items WHERE package_id = $1`, [id]);
+    await client.query(`DELETE FROM medicine_packages WHERE id = $1`, [id]);
+  });
 }
 

@@ -174,33 +174,44 @@ export async function findByEmailWithPassword(
   return null;
 }
 
+function toUserAuthContext(
+  id: string,
+  email: string,
+  rawRoleStr: string | null | undefined,
+  tokenVersion = 0,
+): UserAuthContext {
+  const cleanRaw = (rawRoleStr || '').trim();
+  const lower = cleanRaw.toLowerCase();
+  const role: UserRole =
+    lower === 'super_admin' || lower === 'admin'
+      ? 'admin'
+      : lower === 'doctor'
+        ? 'doctor'
+        : lower === 'patient'
+          ? 'patient'
+          : 'admin';
+  return {
+    id,
+    email,
+    role,
+    ...(cleanRaw ? {rbacRole: cleanRaw} : {}),
+    tokenVersion,
+  };
+}
+
 export async function findAuthContextById(
   id: string,
 ): Promise<UserAuthContext | null> {
   // 1. First try user_accounts (admin/main branch users)
   try {
-    const fromAccounts = await queryOne<{ id: string; email: string; role: string }>(
+    const fromAccounts = await queryOne<{id: string; email: string; role: string}>(
       `SELECT id, username AS "email", role
        FROM user_accounts
        WHERE id = $1`,
       [id],
     );
     if (fromAccounts) {
-      const rawRole = (fromAccounts.role || '').toLowerCase();
-      const role: UserRole =
-        rawRole === 'super_admin' || rawRole === 'admin'
-          ? 'admin'
-          : rawRole === 'doctor'
-          ? 'doctor'
-          : rawRole === 'patient'
-          ? 'patient'
-          : 'admin';
-      return {
-        id: fromAccounts.id,
-        email: fromAccounts.email,
-        role,
-        tokenVersion: 0,
-      };
+      return toUserAuthContext(fromAccounts.id, fromAccounts.email, fromAccounts.role, 0);
     }
   } catch (_err) {
     // ignore
@@ -208,28 +219,14 @@ export async function findAuthContextById(
 
   // 2. Try admin_users
   try {
-    const fromAdminUsers = await queryOne<{ id: string; email: string; role: string }>(
+    const fromAdminUsers = await queryOne<{id: string; email: string; role: string}>(
       `SELECT id, username AS "email", role
        FROM admin_users
        WHERE id = $1 AND status = 'ACTIVE'`,
       [id],
     );
     if (fromAdminUsers) {
-      const rawRole = (fromAdminUsers.role || '').toLowerCase();
-      const role: UserRole =
-        rawRole === 'super_admin' || rawRole === 'admin'
-          ? 'admin'
-          : rawRole === 'doctor'
-          ? 'doctor'
-          : rawRole === 'patient'
-          ? 'patient'
-          : 'admin';
-      return {
-        id: fromAdminUsers.id,
-        email: fromAdminUsers.email,
-        role,
-        tokenVersion: 0,
-      };
+      return toUserAuthContext(fromAdminUsers.id, fromAdminUsers.email, fromAdminUsers.role, 0);
     }
   } catch (_err) {
     // ignore
@@ -237,28 +234,14 @@ export async function findAuthContextById(
 
   // 3. Try master_admin_users
   try {
-    const fromMasterAdmin = await queryOne<{ id: string; email: string; role: string }>(
+    const fromMasterAdmin = await queryOne<{id: string; email: string; role: string}>(
       `SELECT id, email, role
        FROM master_admin_users
        WHERE id = $1 AND status = 'ACTIVE'`,
       [id],
     );
     if (fromMasterAdmin) {
-      const rawRole = (fromMasterAdmin.role || '').toLowerCase();
-      const role: UserRole =
-        rawRole === 'super_admin' || rawRole === 'admin'
-          ? 'admin'
-          : rawRole === 'doctor'
-          ? 'doctor'
-          : rawRole === 'patient'
-          ? 'patient'
-          : 'admin';
-      return {
-        id: fromMasterAdmin.id,
-        email: fromMasterAdmin.email,
-        role,
-        tokenVersion: 0,
-      };
+      return toUserAuthContext(fromMasterAdmin.id, fromMasterAdmin.email, fromMasterAdmin.role, 0);
     }
   } catch (_err) {
     // ignore
@@ -266,40 +249,33 @@ export async function findAuthContextById(
 
   // 4. Try tenant_admin_master_login
   try {
-    const fromTenantAdmin = await queryOne<{ id: string; email: string; role: string }>(
+    const fromTenantAdmin = await queryOne<{id: string; email: string; role: string}>(
       `SELECT id, username AS "email", role
        FROM tenant_admin_master_login
        WHERE id = $1 AND status = 'ACTIVE'`,
       [id],
     );
     if (fromTenantAdmin) {
-      const rawRole = (fromTenantAdmin.role || '').toLowerCase();
-      const role: UserRole =
-        rawRole === 'super_admin' || rawRole === 'admin'
-          ? 'admin'
-          : rawRole === 'doctor'
-          ? 'doctor'
-          : rawRole === 'patient'
-          ? 'patient'
-          : 'admin';
-      return {
-        id: fromTenantAdmin.id,
-        email: fromTenantAdmin.email,
-        role,
-        tokenVersion: 0,
-      };
+      return toUserAuthContext(fromTenantAdmin.id, fromTenantAdmin.email, fromTenantAdmin.role, 0);
     }
   } catch (_err) {
     // ignore
   }
 
-  // 5. Fallback: try the `users` table (doctor app users)
-  return queryOne<UserAuthContext>(
+  // 5. Fallback: try the `users` table (doctor/patient app users)
+  const fromUsers = await queryOne<UserAuthContext>(
     `SELECT id, email, role, token_version AS "tokenVersion"
      FROM users
      WHERE id = $1 AND deleted_at IS NULL`,
     [id],
   );
+  if (fromUsers) {
+    return {
+      ...fromUsers,
+      rbacRole: fromUsers.role,
+    };
+  }
+  return null;
 }
 
 export function incrementTokenVersion(_id: string): Promise<boolean> {

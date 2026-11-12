@@ -233,10 +233,12 @@ export async function getDoctorAvailability(
   const dayNameUpper = DAY_MAP[dateObj.getDay()]!;
 
   const regularQuery = `
-    SELECT da.day_of_week, da.start_time, da.end_time, da.status, da.slot_length, da.location_id,
-           dl.location_name, dl.address as location_address
+    SELECT da.day_of_week, da.start_time, da.end_time, da.status, COALESCE(da.slot_length, 30) as slot_length, da.location_id,
+           COALESCE(dl.location_name, hb.name) as location_name,
+           COALESCE(dl.address, hb.address) as location_address
     FROM doctor_availability da
     LEFT JOIN doctor_locations dl ON da.location_id = dl.id
+    LEFT JOIN hospital_branches hb ON da.branch_id = hb.id
     WHERE da.doctor_id = $1 AND da.day_of_week = $2 AND UPPER(da.status) = 'ACTIVE'
     ORDER BY da.start_time ASC
   `;
@@ -478,10 +480,12 @@ export async function getSlotsForDoctor(
     location_name?: string | null;
     location_address?: string | null;
   }>(
-    `SELECT da.day_of_week, da.start_time, da.end_time, da.status, da.slot_length, da.location_id,
-            dl.location_name, dl.address as location_address
+    `SELECT da.day_of_week, da.start_time, da.end_time, da.status, COALESCE(da.slot_length, 30) as slot_length, da.location_id,
+            COALESCE(dl.location_name, hb.name) as location_name,
+            COALESCE(dl.address, hb.address) as location_address
      FROM doctor_availability da
      LEFT JOIN doctor_locations dl ON da.location_id = dl.id
+     LEFT JOIN hospital_branches hb ON da.branch_id = hb.id
      WHERE da.doctor_id = $1 AND UPPER(da.status) = 'ACTIVE'
      ORDER BY da.start_time ASC`,
     [doctorId],
@@ -511,19 +515,8 @@ export async function getSlotsForDoctor(
     });
   }
 
-  let regularRowsList = allRegularRes.rows;
-  if (regularRowsList.length === 0 && allCustomRes.rows.length === 0) {
-    const defaultDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-    regularRowsList = defaultDays.map(d => ({
-      day_of_week: d,
-      start_time: '09:00:00',
-      end_time: '17:00:00',
-      status: 'ACTIVE',
-      slot_length: 30,
-      location_name: null,
-      location_address: null,
-    }));
-  }
+  // Strictly use availability configured in doctor profile (no synthetic or default slots)
+  const regularRowsList = allRegularRes.rows;
 
   const summaries: DateSlotSummary[] = [];
 
@@ -585,7 +578,12 @@ export async function getSlotsForDoctor(
             return startTimeStr < bEnd && endTimeStr > bStart;
           });
 
-          const isBooked = isTimeBlocked || bookedTimes.some(bt => Math.abs(bt - slotTimeMs) < 60000);
+          if (isTimeBlocked) {
+            currMins += slotLen;
+            continue;
+          }
+
+          const isBooked = bookedTimes.some(bt => Math.abs(bt - slotTimeMs) < 60000);
           const h = Math.floor(currMins / 60);
           const session = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
           const slotId = generateSlotId(doctorId, dateStr, startTimeStr);
@@ -641,7 +639,12 @@ export async function getSlotsForDoctor(
               return startTimeStr < bEnd && endTimeStr > bStart;
             });
 
-            const isBooked = isTimeBlocked || bookedTimes.some(bt => Math.abs(bt - slotTimeMs) < 60000);
+            if (isTimeBlocked) {
+              currMins += slotLen;
+              continue;
+            }
+
+            const isBooked = bookedTimes.some(bt => Math.abs(bt - slotTimeMs) < 60000);
             const h = Math.floor(currMins / 60);
             const session = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
             const slotId = generateSlotId(doctorId, dateStr, startTimeStr);
@@ -822,6 +825,28 @@ export async function createAppointmentTx(params: {
       } else {
         patientName = 'Patient';
       }
+    }
+
+    // Check if appointment falls within doctor's blocked dates or blocked time range
+    const apptStart = new Date(params.scheduledStart);
+    const apptEnd = new Date(params.scheduledEnd);
+    const apptDateStr = apptStart.toISOString().split('T')[0];
+    const apptStartTimeStr = apptStart.toTimeString().slice(0, 8);
+    const apptEndTimeStr = apptEnd.toTimeString().slice(0, 8);
+
+    const blockedCheck = await client.query<{ reason: string | null }>(
+      `SELECT reason FROM doctor_blocked_dates
+       WHERE doctor_id = $1
+         AND blocked_date = $2::date
+         AND start_time < $4::time
+         AND end_time > $3::time`,
+      [params.doctorId, apptDateStr, apptStartTimeStr, apptEndTimeStr],
+    );
+
+    if (blockedCheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      const reason = blockedCheck.rows[0]?.reason || 'Doctor unavailable';
+      throw new Error(`Cannot schedule appointment: Doctor has blocked this date and time (${reason}).`);
     }
 
     const conflictRes = await client.query(

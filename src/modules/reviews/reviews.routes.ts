@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
-import { requireAuth, requireRole } from '@/http/middleware/authenticate.js';
+import { requireAuth } from '@/http/middleware/authenticate.js';
+import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 import { validate } from '@/http/middleware/validate.js';
 
 import { reviewsController } from './reviews.controller.js';
@@ -41,48 +42,53 @@ patientReviewsRouter.get(
 export const adminReviewsRouter: Router = Router();
 
 adminReviewsRouter.use(requireAuth);
-adminReviewsRouter.use(requireRole('admin'));
 
 adminReviewsRouter.get(
   '/doctor-summary',
+  requirePermission('REVIEWS', 'read'),
   reviewsController.getDoctorRatingSummaries,
 );
 
 adminReviewsRouter.get(
   '/ratings-summary',
+  requirePermission('REVIEWS', 'read'),
   reviewsController.getDoctorRatingSummaries,
 );
 
 adminReviewsRouter.get(
   '/',
+  requirePermission('REVIEWS', 'read'),
   validate({ query: adminReviewsQuerySchema }),
   reviewsController.getAdminReviews,
 );
 
 adminReviewsRouter.get(
   '/:reviewId',
+  requirePermission('REVIEWS', 'read'),
   reviewsController.getReviewDetails,
 );
 
 
 adminReviewsRouter.patch(
   '/:reviewId/status',
+  requirePermission('REVIEWS', 'update'),
   validate({ body: moderateReviewBodySchema }),
   reviewsController.moderateReview,
 );
 
 adminReviewsRouter.post(
   '/:reviewId/moderate',
+  requirePermission('REVIEWS', 'update'),
   validate({ body: moderateReviewBodySchema }),
   reviewsController.moderateReview,
 );
 
 export const adminDoctorsRouter: Router = Router();
 adminDoctorsRouter.use(requireAuth);
-adminDoctorsRouter.use(requireRole('admin'));
 
 adminDoctorsRouter.get(
   '/ratings-summary',
+  requirePermission('REVIEWS', 'read'),
   reviewsController.getDoctorRatingSummaries,
 );
 
@@ -110,7 +116,7 @@ reviewsRouter.use('/admin/doctors', adminDoctorsRouter);
 reviewsRouter.get(
   '/admin/doctors/ratings-summary',
   requireAuth,
-  requireRole('admin'),
+  requirePermission('REVIEWS', 'read'),
   reviewsController.getDoctorRatingSummaries,
 );
 reviewsRouter.use('/doctors', doctorReviewsRouter);

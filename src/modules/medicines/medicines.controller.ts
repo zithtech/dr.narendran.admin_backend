@@ -87,15 +87,46 @@ export async function aiSearchMedicines(
   res.status(200).json({ medicines });
 }
 
+async function resolveDoctorId(user: any): Promise<string | null> {
+  if (!user?.id) return null;
+  try {
+    const doc = await doctorsService.getDoctorById(user.id);
+    if (doc?.id) return doc.id;
+  } catch {}
+  try {
+    const { getDoctorIdByUserId } = await import('../appointments/appointments.repository.js');
+    const docId = await getDoctorIdByUserId(user.id);
+    if (docId) return docId;
+  } catch {}
+  return null;
+}
+
 export async function listPackages(
   _req: Request,
   res: Response
 ) {
-  const doctor = await doctorsService.getDoctorById(_req.user!.id);
-  if (!doctor) throw new NotFoundError('Doctor not found for the current user');
+  const user = (_req as any).user;
+  const userRole = (user?.role || '').toLowerCase();
+  let doctorId: string | null = null;
+  if (userRole === 'doctor') {
+    doctorId = await resolveDoctorId(user);
+  }
+  if (_req.query['doctor_id'] && typeof _req.query['doctor_id'] === 'string') {
+    doctorId = _req.query['doctor_id'];
+  }
   
-  const packages = await service.listPackages(doctor.id);
+  const packages = await service.listPackages(doctorId);
   res.status(200).json(packages);
+}
+
+export async function getPackageById(
+  input: { params: { id: string } },
+  _req: Request,
+  res: Response
+) {
+  const pkg = await service.getPackageById(input.params.id);
+  if (!pkg) throw new NotFoundError('Package not found');
+  res.status(200).json(pkg);
 }
 
 export async function createPackage(
@@ -103,10 +134,10 @@ export async function createPackage(
   _req: Request,
   res: Response
 ) {
-  const doctor = await doctorsService.getDoctorById(_req.user!.id);
-  if (!doctor) throw new NotFoundError('Doctor not found for the current user');
+  const user = (_req as any).user;
+  const doctorId = input.body.doctorId || (await resolveDoctorId(user));
   
-  const pkg = await service.createPackage(doctor.id, input.body);
+  const pkg = await service.createPackage(doctorId, input.body);
   res.status(201).json(pkg);
 }
 
@@ -115,10 +146,11 @@ export async function updatePackage(
   _req: Request,
   res: Response
 ) {
-  const doctor = await doctorsService.getDoctorById(_req.user!.id);
-  if (!doctor) throw new NotFoundError('Doctor not found for the current user');
+  const user = (_req as any).user;
+  const userRole = (user?.role || '').toLowerCase();
+  const doctorId = userRole === 'doctor' ? await resolveDoctorId(user) : null;
   
-  const pkg = await service.updatePackage(input.params.id, doctor.id, input.body);
+  const pkg = await service.updatePackage(input.params.id, doctorId, input.body);
   res.status(200).json(pkg);
 }
 
@@ -127,9 +159,10 @@ export async function deletePackage(
   _req: Request,
   res: Response
 ) {
-  const doctor = await doctorsService.getDoctorById(_req.user!.id);
-  if (!doctor) throw new NotFoundError('Doctor not found for the current user');
+  const user = (_req as any).user;
+  const userRole = (user?.role || '').toLowerCase();
+  const doctorId = userRole === 'doctor' ? await resolveDoctorId(user) : null;
   
-  await service.deletePackage(input.params.id, doctor.id);
+  await service.deletePackage(input.params.id, doctorId);
   res.status(204).send();
 }

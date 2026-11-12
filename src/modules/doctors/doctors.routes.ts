@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { requireAuth } from '@/http/middleware/authenticate.js';
+import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 
 import { DoctorsController } from './doctors.controller.js';
 
@@ -17,9 +18,21 @@ doctorsRouter.put('/me/locations/:id', requireAuth, DoctorsController.updateLoca
 doctorsRouter.delete('/me/locations/:id', requireAuth, DoctorsController.deleteLocation);
 doctorsRouter.put('/me/locations/:id/primary', requireAuth, DoctorsController.setPrimaryLocation);
 
-doctorsRouter.get('/', DoctorsController.getAll);
-doctorsRouter.get('/:id/locations', DoctorsController.getDoctorLocationsById);
-doctorsRouter.get('/:id', DoctorsController.getById);
-doctorsRouter.post('/', DoctorsController.create);
-doctorsRouter.put('/:id', DoctorsController.update);
-doctorsRouter.delete('/:id', DoctorsController.delete);
+doctorsRouter.get(
+  '/',
+  requirePermission('DOCTORS', 'read', ['AVAILABILITY', 'APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS', 'REVIEWS', 'PATIENTS']),
+  DoctorsController.getAll,
+);
+doctorsRouter.get(
+  '/:id/locations',
+  requirePermission('DOCTORS', 'read', ['AVAILABILITY', 'APPOINTMENTS', 'TODAYS_SCHEDULE']),
+  DoctorsController.getDoctorLocationsById,
+);
+doctorsRouter.get(
+  '/:id',
+  requirePermission('DOCTORS', 'read', ['AVAILABILITY', 'APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS', 'REVIEWS']),
+  DoctorsController.getById,
+);
+doctorsRouter.post('/', requirePermission('DOCTORS', 'create'), DoctorsController.create);
+doctorsRouter.put('/:id', requirePermission('DOCTORS', 'update'), DoctorsController.update);
+doctorsRouter.delete('/:id', requirePermission('DOCTORS', 'delete'), DoctorsController.delete);

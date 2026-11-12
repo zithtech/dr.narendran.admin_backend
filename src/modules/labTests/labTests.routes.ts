@@ -3,6 +3,7 @@ import multer from 'multer';
 import { z } from 'zod';
 
 import { requireAuth } from '@/http/middleware/authenticate.js';
+import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 import { handler } from '@/http/middleware/validate.js';
 
 import * as reportsController from './labTestReports.controller.js';
@@ -64,25 +65,30 @@ labTestsRouter.delete(
 // ==========================================
 labTestsRouter.get(
   '/',
+  requirePermission('LAB_SERVICES', 'read', ['LAB_SERVICES', 'PRESCRIPTIONS']),
   ...handler({ query: listLabTestsSchema }, controller.listLabTests)
 );
 
 labTestsRouter.get(
   '/:id',
+  requirePermission('LAB_SERVICES', 'read', ['LAB_SERVICES', 'PRESCRIPTIONS']),
   ...handler({ params: paramIdSchema }, controller.getLabTestById)
 );
 
 labTestsRouter.post(
   '/',
+  requirePermission('LAB_SERVICES', 'create'),
   ...handler({ body: createLabTestSchema }, controller.createLabTest)
 );
 
 labTestsRouter.put(
   '/:id',
+  requirePermission('LAB_SERVICES', 'update'),
   ...handler({ params: paramIdSchema, body: updateLabTestSchema }, controller.updateLabTest)
 );
 
 labTestsRouter.delete(
   '/:id',
+  requirePermission('LAB_SERVICES', 'delete'),
   ...handler({ params: paramIdSchema }, controller.deleteLabTest)
 );

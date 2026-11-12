@@ -206,11 +206,15 @@ export type AiSearchMedicineInput = z.output<typeof aiSearchMedicineSchema>;
 
 export const createPackageSchema = z.object({
   name: z.string().min(1, 'Name is required').max(255),
+  description: z.string().optional().nullable(),
+  doctorId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Invalid UUID').optional().nullable(),
   medicineIds: z.array(z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Invalid UUID')).min(1, 'At least one medicine is required'),
 });
 
 export const updatePackageSchema = z.object({
   name: z.string().min(1, 'Name is required').max(255),
+  description: z.string().optional().nullable(),
+  doctorId: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Invalid UUID').optional().nullable(),
   medicineIds: z.array(z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Invalid UUID')).min(1, 'At least one medicine is required'),
 });
 

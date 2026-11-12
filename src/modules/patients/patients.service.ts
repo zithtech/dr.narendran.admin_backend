@@ -45,18 +45,24 @@ export interface UpdatePatientInput extends CreatePatientInput {
 }
 
 export class PatientsService {
-  async getAllPatients() {
+  async getAllPatients(search?: string) {
     const client = await pool.connect();
     try {
-      const {rows} = await client.query(`
+      let query = `
         SELECT p.*, 
                h.name as hospital_name, 
                b.name as branch_name 
         FROM patients p
         LEFT JOIN hospitals h ON p.hospital_id = h.id
         LEFT JOIN hospital_branches b ON p.branch_id = b.id
-        ORDER BY p.created_at DESC
-      `);
+      `;
+      const params: any[] = [];
+      if (search && search.trim()) {
+        params.push(`%${search.trim()}%`);
+        query += ` WHERE (p.name ILIKE $1 OR p.phone ILIKE $1 OR p.email ILIKE $1) `;
+      }
+      query += ` ORDER BY p.created_at DESC `;
+      const {rows} = await client.query(query, params);
 
       for (const row of rows) {
         if (row.profile_image_url) {

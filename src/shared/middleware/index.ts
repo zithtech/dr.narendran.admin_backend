@@ -4,6 +4,10 @@ export {
   requireSelfOrRole,
 } from '@/http/middleware/authenticate.js';
 export {
+  requirePermission,
+  requirePermissionOrPatient,
+} from '@/http/middleware/rbac.middleware.js';
+export {
   apiRateLimiter,
   loginRateLimiter,
 } from '@/http/middleware/rateLimit.js';

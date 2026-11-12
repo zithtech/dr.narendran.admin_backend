@@ -1,10 +1,14 @@
-import { createApiRouter } from '@/shared/index.js';
+import { createApiRouter, requirePermission } from '@/shared/index.js';
 
 import { HospitalsController } from './hospitals.controller.js';
 
 export const hospitalsRouter = createApiRouter();
 
-hospitalsRouter.get('/', HospitalsController.getAll);
-hospitalsRouter.post('/', HospitalsController.create);
-hospitalsRouter.put('/:id', HospitalsController.update);
-hospitalsRouter.delete('/:id', HospitalsController.delete);
+hospitalsRouter.get(
+  '/',
+  requirePermission('HOSPITALS', 'read', ['BRANCHES', 'DOCTORS', 'STAFF']),
+  HospitalsController.getAll,
+);
+hospitalsRouter.post('/', requirePermission('HOSPITALS', 'create'), HospitalsController.create);
+hospitalsRouter.put('/:id', requirePermission('HOSPITALS', 'update'), HospitalsController.update);
+hospitalsRouter.delete('/:id', requirePermission('HOSPITALS', 'delete'), HospitalsController.delete);

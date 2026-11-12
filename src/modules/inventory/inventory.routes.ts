@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requireAuth, requireRole } from '@/http/middleware/authenticate.js';
+import { requireAuth } from '@/http/middleware/authenticate.js';
+import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 import { handler } from '@/http/middleware/validate.js';
 import * as controller from './inventory.controller.js';
 import {
@@ -21,41 +22,46 @@ const paramIdSchema = z.object({
 inventoryRouter.use(requireAuth);
 
 // Summary statistics
-inventoryRouter.get('/summary', ...handler({}, controller.getSummaryStats));
+inventoryRouter.get(
+  '/summary',
+  requirePermission('INVENTORY', 'read'),
+  ...handler({}, controller.getSummaryStats),
+);
 
 // Stock Operations on specific variant
 inventoryRouter.post(
   '/:id/stock-in',
-  requireRole('admin', 'doctor'),
+  requirePermission('INVENTORY', 'update'),
   ...handler({ params: paramIdSchema, body: stockInSchema }, controller.stockIn)
 );
 
 inventoryRouter.post(
   '/:id/stock-out',
-  requireRole('admin', 'doctor'),
+  requirePermission('INVENTORY', 'update'),
   ...handler({ params: paramIdSchema, body: stockOutSchema }, controller.stockOut)
 );
 
 inventoryRouter.post(
   '/:id/adjust',
-  requireRole('admin', 'doctor'),
+  requirePermission('INVENTORY', 'update'),
   ...handler({ params: paramIdSchema, body: adjustStockSchema }, controller.adjustStock)
 );
 
 inventoryRouter.post(
   '/:id/damaged',
-  requireRole('admin', 'doctor'),
+  requirePermission('INVENTORY', 'update'),
   ...handler({ params: paramIdSchema, body: damagedStockSchema }, controller.damagedStock)
 );
 
 inventoryRouter.post(
   '/:id/return',
-  requireRole('admin', 'doctor'),
+  requirePermission('INVENTORY', 'update'),
   ...handler({ params: paramIdSchema, body: returnStockSchema }, controller.returnStock)
 );
 
 inventoryRouter.get(
   '/:id/history',
+  requirePermission('INVENTORY', 'read'),
   ...handler({ params: paramIdSchema, query: queryHistorySchema }, controller.getStockHistory)
 );
 

@@ -1,6 +1,10 @@
 import { Router } from "express";
 
-import { requireAuth, requireRole } from "@/http/middleware/authenticate.js";
+import { requireAuth } from "@/http/middleware/authenticate.js";
+import {
+    requirePermission,
+    requirePermissionOrPatient,
+} from "@/http/middleware/rbac.middleware.js";
 import { validate } from "@/http/middleware/validate.js";
 
 import { DeliveryController } from "./delivery.controller.js";
@@ -28,13 +32,13 @@ ordersRouter.get("/my-orders", requireAuth, OrdersController.getMyOrders);
 ordersRouter.get(
     "/summary",
     requireAuth,
-    requireRole("admin", "doctor"),
+    requirePermission("ORDERS", "read"),
     OrdersController.getSummaryMetrics,
 );
 ordersRouter.get(
     "/metrics",
     requireAuth,
-    requireRole("admin", "doctor"),
+    requirePermission("ORDERS", "read"),
     OrdersController.getSummaryMetrics,
 );
 
@@ -42,7 +46,7 @@ ordersRouter.get(
 ordersRouter.get(
     "/",
     requireAuth,
-    requireRole("admin", "doctor"),
+    requirePermission("ORDERS", "read"),
     validate({ query: listOrdersQuerySchema }),
     OrdersController.getOrders,
 );
@@ -51,6 +55,7 @@ ordersRouter.get(
 ordersRouter.get(
     "/:id",
     requireAuth,
+    requirePermissionOrPatient("ORDERS", "read"),
     validate({ params: orderIdParamSchema }),
     OrdersController.getById,
 );
@@ -59,7 +64,7 @@ ordersRouter.get(
 ordersRouter.patch(
     "/:id/status",
     requireAuth,
-    requireRole("admin", "doctor"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateOrderStatusSchema }),
     OrdersController.updateStatus,
 );
@@ -72,7 +77,7 @@ ordersRouter.patch(
 ordersRouter.get(
     "/:id/delivery",
     requireAuth,
-    requireRole("admin", "doctor"),
+    requirePermission("ORDERS", "read"),
     validate({ params: orderIdParamSchema }),
     DeliveryController.getDeliveryDetails,
 );
@@ -81,14 +86,14 @@ ordersRouter.get(
 ordersRouter.patch(
     "/:id/delivery/method",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryMethodSchema }),
     DeliveryController.updateMethod,
 );
 ordersRouter.put(
     "/:id/delivery/method",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryMethodSchema }),
     DeliveryController.updateMethod,
 );
@@ -97,14 +102,14 @@ ordersRouter.put(
 ordersRouter.patch(
     "/:id/delivery/courier",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateCourierSchema }),
     DeliveryController.updateCourier,
 );
 ordersRouter.put(
     "/:id/delivery/courier",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateCourierSchema }),
     DeliveryController.updateCourier,
 );
@@ -113,21 +118,21 @@ ordersRouter.put(
 ordersRouter.patch(
     "/:id/delivery/pharmacy-delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updatePharmacyDeliverySchema }),
     DeliveryController.updatePharmacyDeliveryPerson,
 );
 ordersRouter.put(
     "/:id/delivery/pharmacy-delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updatePharmacyDeliverySchema }),
     DeliveryController.updatePharmacyDeliveryPerson,
 );
 ordersRouter.patch(
     "/:id/delivery/delivery-person",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updatePharmacyDeliverySchema }),
     DeliveryController.updatePharmacyDeliveryPerson,
 );
@@ -136,14 +141,14 @@ ordersRouter.patch(
 ordersRouter.patch(
     "/:id/delivery/eta",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateEtaSchema }),
     DeliveryController.updateEta,
 );
 ordersRouter.put(
     "/:id/delivery/eta",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateEtaSchema }),
     DeliveryController.updateEta,
 );
@@ -152,14 +157,14 @@ ordersRouter.put(
 ordersRouter.patch(
     "/:id/delivery/status",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryStatusSchema }),
     DeliveryController.updateStatus,
 );
 ordersRouter.put(
     "/:id/delivery/status",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryStatusSchema }),
     DeliveryController.updateStatus,
 );
@@ -168,14 +173,14 @@ ordersRouter.put(
 ordersRouter.patch(
     "/:id/delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: compositeDeliverySchema }),
     DeliveryController.updateComposite,
 );
 ordersRouter.put(
     "/:id/delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: compositeDeliverySchema }),
     DeliveryController.updateComposite,
 );

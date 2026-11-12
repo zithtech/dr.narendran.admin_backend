@@ -1,6 +1,7 @@
 import { type NextFunction, type Request, type Response, Router } from "express";
 
-import { requireAuth, requireRole } from "@/http/middleware/authenticate.js";
+import { requireAuth } from "@/http/middleware/authenticate.js";
+import { requirePermission } from "@/http/middleware/rbac.middleware.js";
 import { validate } from "@/http/middleware/validate.js";
 import { verifyAccessToken } from "@/modules/auth/tokens.js";
 import { DeliveryController } from "@/modules/orders/delivery.controller.js";
@@ -48,7 +49,7 @@ pharmacyOrdersRouter.post("/", optionalAuth, PharmacyOrdersController.createOrde
 pharmacyOrdersRouter.patch(
     "/:id/status",
     requireAuth,
-    requireRole("admin", "doctor"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateOrderStatusSchema }),
     OrdersController.updateStatus,
 );
@@ -57,91 +58,91 @@ pharmacyOrdersRouter.patch(
 pharmacyOrdersRouter.get(
     "/:id/delivery",
     requireAuth,
-    requireRole("admin", "doctor"),
+    requirePermission("ORDERS", "read"),
     validate({ params: orderIdParamSchema }),
     DeliveryController.getDeliveryDetails,
 );
 pharmacyOrdersRouter.patch(
     "/:id/delivery/method",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryMethodSchema }),
     DeliveryController.updateMethod,
 );
 pharmacyOrdersRouter.put(
     "/:id/delivery/method",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryMethodSchema }),
     DeliveryController.updateMethod,
 );
 pharmacyOrdersRouter.patch(
     "/:id/delivery/courier",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateCourierSchema }),
     DeliveryController.updateCourier,
 );
 pharmacyOrdersRouter.put(
     "/:id/delivery/courier",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateCourierSchema }),
     DeliveryController.updateCourier,
 );
 pharmacyOrdersRouter.patch(
     "/:id/delivery/pharmacy-delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updatePharmacyDeliverySchema }),
     DeliveryController.updatePharmacyDeliveryPerson,
 );
 pharmacyOrdersRouter.put(
     "/:id/delivery/pharmacy-delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updatePharmacyDeliverySchema }),
     DeliveryController.updatePharmacyDeliveryPerson,
 );
 pharmacyOrdersRouter.patch(
     "/:id/delivery/eta",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateEtaSchema }),
     DeliveryController.updateEta,
 );
 pharmacyOrdersRouter.put(
     "/:id/delivery/eta",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateEtaSchema }),
     DeliveryController.updateEta,
 );
 pharmacyOrdersRouter.patch(
     "/:id/delivery/status",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryStatusSchema }),
     DeliveryController.updateStatus,
 );
 pharmacyOrdersRouter.put(
     "/:id/delivery/status",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: updateDeliveryStatusSchema }),
     DeliveryController.updateStatus,
 );
 pharmacyOrdersRouter.patch(
     "/:id/delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: compositeDeliverySchema }),
     DeliveryController.updateComposite,
 );
 pharmacyOrdersRouter.put(
     "/:id/delivery",
     requireAuth,
-    requireRole("admin"),
+    requirePermission("ORDERS", "update"),
     validate({ params: orderIdParamSchema, body: compositeDeliverySchema }),
     DeliveryController.updateComposite,
 );

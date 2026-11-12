@@ -340,7 +340,9 @@ export const DoctorsController = {
     }
     try {
       const { rows } = await pool.query(
-        'SELECT * FROM doctor_locations WHERE doctor_id = $1 ORDER BY created_at ASC',
+        `SELECT * FROM doctor_locations 
+         WHERE (doctor_id = $1 OR doctor_id = (SELECT id FROM doctors WHERE user_account_id = $1) OR doctor_id = (SELECT user_account_id FROM doctors WHERE id = $1)) 
+         ORDER BY is_primary DESC, created_at ASC`,
         [req.user.id]
       );
       res.json(rows);
@@ -452,6 +454,257 @@ export const DoctorsController = {
       }
       await client.query('UPDATE doctor_locations SET is_primary = false WHERE doctor_id = $1', [req.user.id]);
       await client.query('UPDATE doctor_locations SET is_primary = true WHERE id = $1', [id]);
+      await client.query('COMMIT');
+      res.json({ message: 'Primary location updated successfully' });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ error: 'Failed to set primary location' });
+    } finally {
+      client.release();
+    }
+  },
+
+  async adminGetDoctorLocations(req: Request, res: Response) {
+    const rawDoctorId = req.params['doctorId'];
+    const doctorId = Array.isArray(rawDoctorId) ? rawDoctorId[0] : rawDoctorId;
+    if (!doctorId) {
+      res.status(400).json({ error: 'Doctor ID is required' });
+      return;
+    }
+    try {
+      const { rows } = await pool.query(
+        `SELECT * FROM doctor_locations 
+         WHERE (doctor_id::text = $1 OR doctor_id = (SELECT user_account_id FROM doctors WHERE id::text = $1) OR doctor_id = (SELECT id FROM doctors WHERE user_account_id::text = $1))
+         ORDER BY is_primary DESC, created_at ASC`,
+        [doctorId]
+      );
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to fetch doctor locations' });
+    }
+  },
+
+  async adminCreateDoctorLocation(req: Request, res: Response) {
+    const rawDoctorId = req.params['doctorId'];
+    const doctorId = Array.isArray(rawDoctorId) ? rawDoctorId[0] : rawDoctorId;
+    if (!doctorId) {
+      res.status(400).json({ error: 'Doctor ID is required' });
+      return;
+    }
+    const { location_name, address, map_link, is_primary, status } = req.body;
+    if (!location_name || !location_name.trim()) {
+      res.status(400).json({ error: 'Location name is required' });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // Resolve doctor_id to use
+      const existing = await client.query(
+        `SELECT doctor_id FROM doctor_locations 
+         WHERE doctor_id::text = $1 OR doctor_id = (SELECT user_account_id FROM doctors WHERE id::text = $1) OR doctor_id = (SELECT id FROM doctors WHERE user_account_id::text = $1)
+         LIMIT 1`,
+        [doctorId]
+      );
+      let targetDoctorId = doctorId;
+      if (existing.rows.length > 0) {
+        targetDoctorId = existing.rows[0].doctor_id;
+      } else {
+        const doc = await client.query(
+          `SELECT id, user_account_id FROM doctors WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
+          [doctorId]
+        );
+        if (doc.rows.length > 0) {
+          targetDoctorId = doc.rows[0].user_account_id || doc.rows[0].id;
+        }
+      }
+
+      if (is_primary) {
+        await client.query(
+          `UPDATE doctor_locations SET is_primary = false 
+           WHERE doctor_id::text = $1 OR doctor_id = (SELECT user_account_id FROM doctors WHERE id::text = $1) OR doctor_id = (SELECT id FROM doctors WHERE user_account_id::text = $1)`,
+          [targetDoctorId]
+        );
+      }
+      const { rows } = await client.query(
+        `INSERT INTO doctor_locations (doctor_id, location_name, address, map_link, is_primary, status)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [targetDoctorId, location_name.trim(), address?.trim() || null, map_link?.trim() || null, Boolean(is_primary), status || 'Active']
+      );
+
+      const primaryCheck = await client.query(
+        `SELECT id FROM doctor_locations 
+         WHERE (doctor_id::text = $1 OR doctor_id = (SELECT user_account_id FROM doctors WHERE id::text = $1) OR doctor_id = (SELECT id FROM doctors WHERE user_account_id::text = $1)) 
+           AND is_primary = true`,
+        [targetDoctorId]
+      );
+      if (primaryCheck.rowCount === 0) {
+        await client.query('UPDATE doctor_locations SET is_primary = true WHERE id = $1', [rows[0].id]);
+        rows[0].is_primary = true;
+      }
+      await client.query('COMMIT');
+      res.status(201).json(rows[0]);
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      logger.error({ err }, 'ERROR IN adminCreateDoctorLocation');
+      res.status(500).json({ error: 'Failed to create location', details: err.message });
+    } finally {
+      client.release();
+    }
+  },
+
+  async adminUpdateDoctorLocation(req: Request, res: Response) {
+    const rawDoctorId = req.params['doctorId'];
+    const doctorId = Array.isArray(rawDoctorId) ? rawDoctorId[0] : rawDoctorId;
+    const rawLocationId = req.params['locationId'];
+    const locationId = Array.isArray(rawLocationId) ? rawLocationId[0] : rawLocationId;
+
+    if (!doctorId || !locationId) {
+      res.status(400).json({ error: 'Doctor ID and Location ID are required' });
+      return;
+    }
+    const { location_name, address, map_link, is_primary, status } = req.body;
+    if (location_name !== undefined && !location_name.trim()) {
+      res.status(400).json({ error: 'Location name cannot be empty' });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const existingLoc = await client.query('SELECT doctor_id FROM doctor_locations WHERE id::text = $1', [locationId]);
+      if (existingLoc.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: 'Location not found' });
+        return;
+      }
+      const targetDoctorId = existingLoc.rows[0].doctor_id;
+
+      if (is_primary) {
+        await client.query(
+          `UPDATE doctor_locations SET is_primary = false 
+           WHERE doctor_id::text = $1 OR doctor_id = (SELECT user_account_id FROM doctors WHERE id::text = $1) OR doctor_id = (SELECT id FROM doctors WHERE user_account_id::text = $1)`,
+          [targetDoctorId]
+        );
+      }
+
+      const updates: string[] = ['updated_at = now()'];
+      const params: any[] = [];
+      let pIdx = 1;
+
+      if (location_name !== undefined) {
+        updates.push(`location_name = $${pIdx++}`);
+        params.push(location_name.trim());
+      }
+      if (address !== undefined) {
+        updates.push(`address = $${pIdx++}`);
+        params.push(address?.trim() || null);
+      }
+      if (map_link !== undefined) {
+        updates.push(`map_link = $${pIdx++}`);
+        params.push(map_link?.trim() || null);
+      }
+      if (is_primary !== undefined) {
+        updates.push(`is_primary = $${pIdx++}`);
+        params.push(Boolean(is_primary));
+      }
+      if (status !== undefined) {
+        updates.push(`status = $${pIdx++}`);
+        params.push(status);
+      }
+
+      params.push(locationId);
+      const locIdParam = `$${pIdx++}`;
+
+      const { rows } = await client.query(
+        `UPDATE doctor_locations
+         SET ${updates.join(', ')}
+         WHERE id::text = ${locIdParam}
+         RETURNING *`,
+        params
+      );
+
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: 'Location not found' });
+        return;
+      }
+
+      await client.query('COMMIT');
+      res.json(rows[0]);
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      logger.error({ err }, 'ERROR IN adminUpdateDoctorLocation');
+      res.status(500).json({ error: 'Failed to update location', details: err.message });
+    } finally {
+      client.release();
+    }
+  },
+
+  async adminDeleteDoctorLocation(req: Request, res: Response) {
+    const rawDoctorId = req.params['doctorId'];
+    const doctorId = Array.isArray(rawDoctorId) ? rawDoctorId[0] : rawDoctorId;
+    const rawLocationId = req.params['locationId'];
+    const locationId = Array.isArray(rawLocationId) ? rawLocationId[0] : rawLocationId;
+
+    if (!doctorId || !locationId) {
+      res.status(400).json({ error: 'Doctor ID and Location ID are required' });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const loc = await client.query('SELECT is_primary FROM doctor_locations WHERE id::text = $1', [locationId]);
+      if (loc.rowCount === 0) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: 'Location not found' });
+        return;
+      }
+      if (loc.rows[0].is_primary) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: 'Cannot delete primary location. Set another location as primary first.' });
+        return;
+      }
+
+      await client.query('DELETE FROM doctor_locations WHERE id::text = $1', [locationId]);
+      await client.query('COMMIT');
+      res.json({ message: 'Location deleted successfully' });
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ error: 'Failed to delete location', details: err.message });
+    } finally {
+      client.release();
+    }
+  },
+
+  async adminSetPrimaryLocation(req: Request, res: Response) {
+    const rawDoctorId = req.params['doctorId'];
+    const doctorId = Array.isArray(rawDoctorId) ? rawDoctorId[0] : rawDoctorId;
+    const rawLocationId = req.params['locationId'];
+    const locationId = Array.isArray(rawLocationId) ? rawLocationId[0] : rawLocationId;
+
+    if (!doctorId || !locationId) {
+      res.status(400).json({ error: 'Doctor ID and Location ID are required' });
+      return;
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const check = await client.query('SELECT id, doctor_id FROM doctor_locations WHERE id::text = $1', [locationId]);
+      if (check.rowCount === 0) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: 'Location not found' });
+        return;
+      }
+      const targetDoctorId = check.rows[0].doctor_id;
+
+      await client.query(
+        `UPDATE doctor_locations SET is_primary = false 
+         WHERE doctor_id::text = $1 OR doctor_id = (SELECT user_account_id FROM doctors WHERE id::text = $1) OR doctor_id = (SELECT id FROM doctors WHERE user_account_id::text = $1)`,
+        [targetDoctorId]
+      );
+      await client.query('UPDATE doctor_locations SET is_primary = true WHERE id::text = $1', [locationId]);
       await client.query('COMMIT');
       res.json({ message: 'Primary location updated successfully' });
     } catch (err) {

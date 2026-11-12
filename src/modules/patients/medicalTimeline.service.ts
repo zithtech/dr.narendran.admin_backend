@@ -65,10 +65,19 @@ function calculateAge(dobStr: string | null | undefined): number | null {
 async function signUrl(
   urlOrKey: string | null | undefined,
 ): Promise<string | undefined> {
-  if (!urlOrKey) return undefined;
-  if (urlOrKey.includes('amazonaws.com')) {
+  if (!urlOrKey || typeof urlOrKey !== 'string') return undefined;
+  const trimmed = urlOrKey.trim();
+  if (!trimmed) return undefined;
+
+  // If already a presigned URL with active signature, return as-is
+  if (trimmed.includes('X-Amz-Signature') || trimmed.includes('X-Amz-Algorithm')) {
+    return trimmed;
+  }
+
+  // If it's a full Amazon S3 URL, extract the key
+  if (trimmed.includes('amazonaws.com/')) {
     try {
-      const parts = urlOrKey.split('.amazonaws.com/');
+      const parts = trimmed.split('.amazonaws.com/');
       if (parts[1]) {
         const key = parts[1].split('?')[0];
         if (key) {
@@ -76,10 +85,27 @@ async function signUrl(
         }
       }
     } catch {
-      return urlOrKey;
+      return trimmed;
     }
   }
-  return urlOrKey;
+
+  // If it's a raw storage key (e.g. 'lab_reports/...', 'prescriptions/...')
+  if (
+    !trimmed.startsWith('http://') &&
+    !trimmed.startsWith('https://') &&
+    !trimmed.startsWith('data:') &&
+    !trimmed.startsWith('blob:')
+  ) {
+    try {
+      const cleanKey = trimmed.replace(/^\/+/, '');
+      return await s3Service.getReadUrl(cleanKey, 86400);
+    } catch (err) {
+      console.warn('signUrl failed for key:', trimmed, err);
+      return trimmed;
+    }
+  }
+
+  return trimmed;
 }
 
 export class MedicalTimelineService {
@@ -489,24 +515,78 @@ export class MedicalTimelineService {
     let filteredEvents = events;
 
     // Filter by type
-    if (query.type && query.type !== 'ALL') {
-      const filterType = query.type;
-      filteredEvents = filteredEvents.filter((e) => {
-        if (filterType === 'MEDICINE') {
-          return (
-            e.type === 'MEDICINE_STARTED' ||
-            e.type === 'MEDICINE_CHANGED' ||
-            e.type === 'MEDICINE_STOPPED'
-          );
-        }
-        if (filterType === 'INVESTIGATION') {
-          return e.type === 'LAB_TEST_ORDERED';
-        }
-        if (filterType === 'REPORT') {
-          return e.type === 'LAB_REPORT';
-        }
-        return e.type === filterType;
-      });
+    if (query.type) {
+      const rawType = String(query.type).trim().toUpperCase();
+      if (rawType !== 'ALL' && rawType !== '') {
+        filteredEvents = filteredEvents.filter((e) => {
+          if (
+            rawType === 'CONSULTATION' ||
+            rawType === 'CONSULTATIONS'
+          ) {
+            return e.type === 'CONSULTATION';
+          }
+          if (
+            rawType === 'APPOINTMENT' ||
+            rawType === 'APPOINTMENTS'
+          ) {
+            return (
+              e.type === 'APPOINTMENT' ||
+              e.type === 'FOLLOW_UP' ||
+              e.type === 'CONSULTATION'
+            );
+          }
+          if (
+            rawType === 'MEDICINE' ||
+            rawType === 'MEDICINES' ||
+            rawType === 'MEDICATION' ||
+            rawType === 'MEDICATIONS'
+          ) {
+            return (
+              e.type === 'MEDICINE_STARTED' ||
+              e.type === 'MEDICINE_CHANGED' ||
+              e.type === 'MEDICINE_STOPPED'
+            );
+          }
+          if (
+            rawType === 'PRESCRIPTION' ||
+            rawType === 'PRESCRIPTIONS'
+          ) {
+            return e.type === 'PRESCRIPTION';
+          }
+          if (
+            rawType === 'INVESTIGATION' ||
+            rawType === 'INVESTIGATIONS'
+          ) {
+            return (
+              e.type === 'LAB_TEST_ORDERED' ||
+              e.type === 'LAB_REPORT' ||
+              e.type === 'IMAGING'
+            );
+          }
+          if (
+            rawType === 'REPORT' ||
+            rawType === 'REPORTS' ||
+            rawType === 'LAB_REPORT' ||
+            rawType === 'LAB_REPORTS'
+          ) {
+            return e.type === 'LAB_REPORT' || e.type === 'IMAGING';
+          }
+          if (
+            rawType === 'RECORD' ||
+            rawType === 'RECORDS' ||
+            rawType === 'MEDICAL_RECORD' ||
+            rawType === 'MEDICAL_RECORDS'
+          ) {
+            return (
+              e.type === 'MEDICAL_RECORD' ||
+              e.type === 'LAB_REPORT' ||
+              e.type === 'PRESCRIPTION' ||
+              e.type === 'IMAGING'
+            );
+          }
+          return e.type === rawType || e.type.toUpperCase() === rawType;
+        });
+      }
     }
 
     // Filter by date range (occurred_at date)
@@ -631,6 +711,11 @@ export class MedicalTimelineService {
         : null,
     };
 
+    let profileImageUrl: string | null = patientProfile?.profileImageUrl || null;
+    if (profileImageUrl) {
+      profileImageUrl = (await signUrl(profileImageUrl)) || profileImageUrl;
+    }
+
     const patientHeader: PatientTimelineHeader = {
       id: patientProfile?.id || primaryId,
       name: patientProfile?.name || 'Patient',
@@ -639,6 +724,7 @@ export class MedicalTimelineService {
       phone: patientProfile?.phone || null,
       email: patientProfile?.email || null,
       blood_group: patientProfile?.bloodGroup || null,
+      profile_image_url: profileImageUrl,
     };
 
     return {

@@ -157,6 +157,10 @@ export class S3Service {
    * Generate a pre-signed URL for reading a file (GET) or return local route
    */
   async getReadUrl(key: string, expiresIn = 3600): Promise<string> {
+    if (this.hasLocalFile(key)) {
+      return `/api/medical-records/storage/${encodeURIComponent(key)}`;
+    }
+
     if (this.isR2 && env.R2_PUBLIC_URL) {
       return `${env.R2_PUBLIC_URL.replace(/\/$/, '')}/${key}`;
     }

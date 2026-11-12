@@ -168,7 +168,7 @@ export async function getPatientProfile(
         p.weight_kg                AS "weightKg",
         p.blood_group              AS "bloodGroup",
         p.marital_status           AS "maritalStatus",
-        p.basic_medical_info       AS "basicMedicalInfo",
+        NULL::jsonb                AS "basicMedicalInfo",
         p.emergency_contacts       AS "emergencyContacts",
         p.profile_image_url        AS "profileImageUrl",
         p.created_at::text         AS "createdAt"
@@ -206,7 +206,7 @@ export async function getPatientAppointments(
         a.scheduled_end            AS "scheduledEnd",
         a.status                   AS "status",
         a.purpose                  AS "purpose",
-        a.visit_reason             AS "visitReason",
+        COALESCE(a.patient_note, a.purpose) AS "visitReason",
         a.reschedule_reason        AS "rescheduleReason",
         a.cancellation_reason      AS "cancellationReason",
         a.consultation_notes       AS "consultationNotes",

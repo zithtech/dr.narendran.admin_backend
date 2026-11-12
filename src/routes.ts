@@ -21,6 +21,7 @@ import { notificationsRouter } from '@/modules/notifications/notification.routes
 import { ordersRouter } from '@/modules/orders/orders.routes.js';
 import { patientsRouter } from '@/modules/patients/patients.routes.js';
 import { patientTimelinesRouter } from '@/modules/patient_timelines/patientTimelines.routes.js';
+import { medicalRecordsRouter } from '@/modules/medical_records/medicalRecords.routes.js';
 import { pharmacyRouter } from '@/modules/pharmacy/pharmacy.routes.js';
 import { pharmacyOrdersRouter } from '@/modules/pharmacy_orders/pharmacy_orders.routes.js';
 import { prescriptionTemplatesRouter } from '@/modules/prescription_templates/prescription_templates.routes.js';
@@ -83,5 +84,7 @@ apiRouter.use('/', reviewsRouter);
 apiRouter.use('/staff', staffRouter);
 apiRouter.use('/admin/patient-timelines', patientTimelinesRouter);
 apiRouter.use('/patient-timelines', patientTimelinesRouter);
+apiRouter.use('/admin/medical-records', medicalRecordsRouter);
+apiRouter.use('/medical-records', medicalRecordsRouter);
 
 

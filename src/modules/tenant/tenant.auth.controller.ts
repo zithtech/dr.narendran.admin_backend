@@ -111,4 +111,56 @@ export const TenantAuthController = {
       res.status(400).json({ error: err.message || 'Invalid request data' });
     }
   },
+
+  async forgotPassword(req: Request, res: Response) {
+    try {
+      const identifier = req.body.identifier || req.body.username || req.body.email || req.body.phone;
+      if (!identifier || typeof identifier !== 'string' || !identifier.trim()) {
+        res.status(400).json({ error: 'Username, email, or mobile number is required.' });
+        return;
+      }
+      res.json({
+        message: 'If the account exists, a password reset request has been processed.',
+        identifier: identifier.trim(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to process forgot password request' });
+    }
+  },
+
+  async resetPassword(req: Request, res: Response) {
+    try {
+      const identifier = req.body.identifier || req.body.username || req.body.email || req.body.phone;
+      const newPassword = req.body.password || req.body.newPassword;
+
+      if (!identifier || typeof identifier !== 'string' || !identifier.trim()) {
+        res.status(400).json({ error: 'Username, email, or mobile number is required.' });
+        return;
+      }
+
+      // If only identifier is provided, treat as forgot-password trigger
+      if (!newPassword) {
+        res.json({
+          message: 'If the account exists, a password reset request has been processed.',
+          identifier: identifier.trim(),
+        });
+        return;
+      }
+
+      if (typeof newPassword !== 'string' || newPassword.length < 6) {
+        res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+        return;
+      }
+
+      const updated = await tenantAuthService.resetPassword(identifier.trim(), newPassword);
+      if (!updated) {
+        res.status(404).json({ error: 'Account not found for the provided identifier.' });
+        return;
+      }
+
+      res.json({ message: 'Password has been reset successfully.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to reset password.' });
+    }
+  },
 };

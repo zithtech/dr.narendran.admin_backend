@@ -1,6 +1,54 @@
 import {pool} from '@/db/pool.js';
 import { getDoctorAvailability as getDoctorAvailabilityRepo } from '@/modules/appointments/appointments.repository.js';
 
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeDateString(raw: string | Date | null | undefined, fallback: string): string {
+  if (!raw) return fallback;
+  if (typeof raw === 'string') return raw.split('T')[0] || fallback;
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) return formatLocalDate(raw);
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? fallback : formatLocalDate(parsed);
+}
+
+function formatBlockedDateRow<
+  T extends {
+    blocked_date?: string | Date | null | undefined;
+    start_date?: string | Date | null | undefined;
+    start_time?: string | null | undefined;
+    end_time?: string | null | undefined;
+  },
+>(row: T) {
+  const todayStr = formatLocalDate(new Date());
+  const bDate = normalizeDateString(row.blocked_date ?? row.start_date, todayStr);
+  const sTime = (row.start_time || '00:00:00').slice(0, 5);
+  const eTime = (row.end_time || '23:59:00').slice(0, 5);
+  const isAllDay =
+    (sTime <= '00:00' && eTime >= '23:59') ||
+    (sTime <= '09:00' && eTime >= '17:00');
+
+  let status: 'UPCOMING' | 'TODAY' | 'PAST' = 'UPCOMING';
+  if (bDate === todayStr) {
+    status = 'TODAY';
+  } else if (bDate < todayStr) {
+    status = 'PAST';
+  }
+
+  return {
+    ...row,
+    blocked_date: bDate,
+    start_time: sTime,
+    end_time: eTime,
+    is_all_day: isAllDay,
+    status,
+  };
+}
+
 export interface CreateAvailabilityInput {
   doctor_id: string;
   branch_id: string;
@@ -269,58 +317,38 @@ export class DoctorAvailabilityService {
     await this.ensureBlockedDatesTable();
     const client = await pool.connect();
     try {
+      let hasLegacyCols = false;
+      try {
+        const checkRes = await client.query(
+          `SELECT 1 FROM information_schema.columns WHERE table_name = 'doctor_blocked_dates' AND column_name = 'start_date'`
+        );
+        hasLegacyCols = (checkRes.rowCount ?? 0) > 0;
+      } catch {
+        hasLegacyCols = false;
+      }
+
+      const dateColExpr = hasLegacyCols
+        ? 'COALESCE(blocked_date, start_date::date)'
+        : 'blocked_date';
+
       const { rows } = await client.query<{
         id: string;
         doctor_id: string;
         blocked_date: string | Date | null;
-        start_date?: string | Date | null;
         start_time: string;
         end_time: string;
         reason: string | null;
         created_at: string | Date;
         updated_at: string | Date;
       }>(
-        `SELECT id, doctor_id, COALESCE(blocked_date, start_date::date) as blocked_date, start_time, end_time, reason, created_at, updated_at
+        `SELECT id, doctor_id, to_char(${dateColExpr}, 'YYYY-MM-DD') as blocked_date, start_time, end_time, reason, created_at, updated_at
          FROM doctor_blocked_dates
          WHERE doctor_id = $1
-         ORDER BY COALESCE(blocked_date, start_date::date) ASC, start_time ASC`,
+         ORDER BY ${dateColExpr} ASC, start_time ASC`,
         [doctorId]
       );
 
-      const now = new Date();
-      const todayStr = now.toISOString().split('T')[0]!;
-
-      return rows.map((r) => {
-        const rawDate = r.blocked_date || r.start_date;
-        let bDate = todayStr;
-        if (rawDate) {
-          bDate =
-            typeof rawDate === 'string'
-              ? rawDate.split('T')[0]!
-              : new Date(rawDate).toISOString().split('T')[0]!;
-        }
-        const sTime = (r.start_time || '00:00:00').slice(0, 5);
-        const eTime = (r.end_time || '23:59:00').slice(0, 5);
-        const isAllDay =
-          (sTime <= '00:00' && eTime >= '23:59') ||
-          (sTime <= '09:00' && eTime >= '17:00');
-
-        let status: 'UPCOMING' | 'TODAY' | 'PAST' = 'UPCOMING';
-        if (bDate === todayStr) {
-          status = 'TODAY';
-        } else if (bDate < todayStr) {
-          status = 'PAST';
-        }
-
-        return {
-          ...r,
-          blocked_date: bDate,
-          start_time: sTime,
-          end_time: eTime,
-          is_all_day: isAllDay,
-          status,
-        };
-      });
+      return rows.map((r) => formatBlockedDateRow(r));
     } finally {
       client.release();
     }
@@ -355,7 +383,9 @@ export class DoctorAvailabilityService {
           `SELECT 1 FROM information_schema.columns WHERE table_name = 'doctor_blocked_dates' AND column_name = 'start_date'`
         );
         hasLegacyCols = (checkRes.rowCount ?? 0) > 0;
-      } catch {}
+      } catch {
+        hasLegacyCols = false;
+      }
 
       if (hasLegacyCols) {
         const { rows } = await client.query(
@@ -364,7 +394,7 @@ export class DoctorAvailabilityService {
            RETURNING *`,
           [data.doctor_id, normalizedDate, startTime, endTime, data.reason || null]
         );
-        return rows[0];
+        return rows[0] ? formatBlockedDateRow({ ...rows[0], blocked_date: normalizedDate }) : null;
       }
 
       const { rows } = await client.query(
@@ -373,7 +403,7 @@ export class DoctorAvailabilityService {
          RETURNING *`,
         [data.doctor_id, normalizedDate, startTime, endTime, data.reason || null]
       );
-      return rows[0];
+      return rows[0] ? formatBlockedDateRow({ ...rows[0], blocked_date: normalizedDate }) : null;
     } finally {
       client.release();
     }
@@ -413,7 +443,7 @@ export class DoctorAvailabilityService {
          RETURNING *`,
         [normalizedDate, startTime, endTime, data.reason ?? null, id]
       );
-      return rows[0] || null;
+      return rows[0] ? formatBlockedDateRow(rows[0]) : null;
     } finally {
       client.release();
     }

@@ -228,6 +228,91 @@ export class TenantAuthService {
       client.release();
     }
   }
+
+  async resetPassword(identifier: string, newPasswordPlain: string): Promise<boolean> {
+    const client = await pool.connect();
+    try {
+      const cleanIdentifier = (identifier || '').trim();
+      const passwordHash = await hash(newPasswordPlain);
+
+      let updated = false;
+
+      // 1. Check & update user_accounts
+      try {
+        const res = await client.query(
+          `UPDATE user_accounts 
+           SET password_hash = $1, updated_at = NOW() 
+           WHERE lower(username) = lower($2) 
+              OR lower(username) = lower(REGEXP_REPLACE($2, '\\s+', '', 'g'))
+           RETURNING id`,
+          [passwordHash, cleanIdentifier],
+        );
+        if (res.rowCount && res.rowCount > 0) updated = true;
+      } catch (_e) {}
+
+      // 2. Check & update admin_users
+      if (!updated) {
+        try {
+          const res = await client.query(
+            `UPDATE admin_users 
+             SET password_hash = $1, updated_at = NOW() 
+             WHERE lower(username) = lower($2) 
+             RETURNING id`,
+            [passwordHash, cleanIdentifier],
+          );
+          if (res.rowCount && res.rowCount > 0) updated = true;
+        } catch (_e) {}
+      }
+
+      // 3. Check & update master_admin_users
+      if (!updated) {
+        try {
+          const res = await client.query(
+            `UPDATE master_admin_users 
+             SET password_hash = $1, updated_at = NOW() 
+             WHERE lower(email) = lower($2) OR lower(name) = lower($2) 
+             RETURNING id`,
+            [passwordHash, cleanIdentifier],
+          );
+          if (res.rowCount && res.rowCount > 0) updated = true;
+        } catch (_e) {}
+      }
+
+      // 4. Check & update tenant_admin_master_login
+      if (!updated) {
+        try {
+          const res = await client.query(
+            `UPDATE tenant_admin_master_login 
+             SET password_hash = $1, updated_at = NOW() 
+             WHERE lower(username) = lower($2) 
+             RETURNING id`,
+            [passwordHash, cleanIdentifier],
+          );
+          if (res.rowCount && res.rowCount > 0) updated = true;
+        } catch (_e) {}
+      }
+
+      // 5. Check & update users
+      if (!updated) {
+        try {
+          const res = await client.query(
+            `UPDATE users 
+             SET password_hash = $1, updated_at = NOW() 
+             WHERE (email IS NOT NULL AND lower(email) = lower($2))
+                OR phone = $2
+                OR replace(replace(replace(phone, ' ', ''), '-', ''), '+', '') = replace(replace(replace($2, ' ', ''), '-', ''), '+', '')
+             RETURNING id`,
+            [passwordHash, cleanIdentifier],
+          );
+          if (res.rowCount && res.rowCount > 0) updated = true;
+        } catch (_e) {}
+      }
+
+      return updated;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 export const tenantAuthService = new TenantAuthService();

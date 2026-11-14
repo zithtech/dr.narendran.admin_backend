@@ -35,15 +35,19 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
         VALUES ('STAFF', 'Staff Management', 'Manage hospital staff details, roles, shifts, and documents')
         ON CONFLICT (slug) DO NOTHING;
 
-        -- Grant System Administrator access
-        INSERT INTO rbac_role_permissions (role_name, module_slug, can_read, can_write, can_delete)
-        VALUES ('System Administrator', 'STAFF', true, true, true)
-        ON CONFLICT DO NOTHING;
+        -- Grant System Administrator access if role exists
+        IF EXISTS (SELECT 1 FROM rbac_roles WHERE name = 'System Administrator') THEN
+          INSERT INTO rbac_role_permissions (role_name, module_slug, can_read, can_write, can_delete)
+          VALUES ('System Administrator', 'STAFF', true, true, true)
+          ON CONFLICT DO NOTHING;
+        END IF;
 
-        -- Grant Viewer read access
-        INSERT INTO rbac_role_permissions (role_name, module_slug, can_read, can_write, can_delete)
-        VALUES ('Viewer', 'STAFF', true, false, false)
-        ON CONFLICT DO NOTHING;
+        -- Grant Viewer read access if role exists
+        IF EXISTS (SELECT 1 FROM rbac_roles WHERE name = 'Viewer') THEN
+          INSERT INTO rbac_role_permissions (role_name, module_slug, can_read, can_write, can_delete)
+          VALUES ('Viewer', 'STAFF', true, false, false)
+          ON CONFLICT DO NOTHING;
+        END IF;
       END IF;
     END $$;
   `);

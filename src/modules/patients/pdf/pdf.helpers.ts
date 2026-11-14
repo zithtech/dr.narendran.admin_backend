@@ -1,4 +1,29 @@
+import fs from 'node:fs';
 import puppeteer from 'puppeteer';
+
+function resolvePuppeteerExecutablePath(): string | undefined {
+  const envPath = process.env['PUPPETEER_EXECUTABLE_PATH'];
+  if (envPath && fs.existsSync(envPath)) {
+    return envPath;
+  }
+
+  const candidatePaths = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
 
 export function escapeHtml(str: string | null | undefined): string {
   if (str === null || str === undefined) return '';
@@ -48,13 +73,14 @@ export function formatDateTime(dateStr: string | Date | null | undefined): strin
 }
 
 export async function htmlToPdfBuffer(html: string): Promise<Buffer> {
+  const executablePath = resolvePuppeteerExecutablePath();
   const browser = await puppeteer.launch({
-    executablePath: process.env['PUPPETEER_EXECUTABLE_PATH'] || 'chromium',
+    ...(executablePath ? { executablePath } : {}),
     headless: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage'
+      '--disable-dev-shm-usage',
     ],
   });
 

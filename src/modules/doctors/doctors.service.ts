@@ -85,6 +85,7 @@ export interface FormattedDoctorInfo {
   is_active?: boolean;
   hospital_name?: string;
   branch_name?: string;
+  locations_count?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -161,6 +162,7 @@ export function formatDoctorInfo(row: any, hospitals: DoctorHospitalInfo[] = [])
     is_active: row.is_active,
     hospital_name: row.hospital_name,
     branch_name: row.branch_name,
+    locations_count: Number(row.locations_count || 0),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -248,7 +250,8 @@ export class DoctorsService {
           d.created_at,
           d.updated_at,
           dr_stats.average_rating,
-          COALESCE(dr_stats.total_reviews, 0) AS total_reviews
+          COALESCE(dr_stats.total_reviews, 0) AS total_reviews,
+          COALESCE(loc_stats.count, 0) AS locations_count
         FROM doctors d
         LEFT JOIN hospitals h ON d.hospital_id = h.id
         LEFT JOIN hospital_branches b ON d.branch_id = b.id
@@ -261,6 +264,11 @@ export class DoctorsService {
           WHERE status = 'ACTIVE'
           GROUP BY doctor_id
         ) dr_stats ON (dr_stats.doctor_id = d.id OR dr_stats.doctor_id = d.user_account_id)
+        LEFT JOIN (
+          SELECT doctor_id, COUNT(*)::int as count
+          FROM doctor_locations
+          GROUP BY doctor_id
+        ) loc_stats ON (loc_stats.doctor_id = d.id OR loc_stats.doctor_id = d.user_account_id)
         WHERE 1=1
       `;
 
@@ -330,7 +338,8 @@ export class DoctorsService {
           d.created_at,
           d.updated_at,
           dr_stats.average_rating,
-          COALESCE(dr_stats.total_reviews, 0) AS total_reviews
+          COALESCE(dr_stats.total_reviews, 0) AS total_reviews,
+          COALESCE(loc_stats.count, 0) AS locations_count
         FROM doctors d
         LEFT JOIN hospitals h ON d.hospital_id = h.id
         LEFT JOIN hospital_branches b ON d.branch_id = b.id
@@ -343,6 +352,11 @@ export class DoctorsService {
           WHERE status = 'ACTIVE'
           GROUP BY doctor_id
         ) dr_stats ON (dr_stats.doctor_id = d.id OR dr_stats.doctor_id = d.user_account_id)
+        LEFT JOIN (
+          SELECT doctor_id, COUNT(*)::int as count
+          FROM doctor_locations
+          GROUP BY doctor_id
+        ) loc_stats ON (loc_stats.doctor_id = d.id OR loc_stats.doctor_id = d.user_account_id)
         WHERE d.id = $1 OR d.user_account_id = $1
       `, [id]);
 

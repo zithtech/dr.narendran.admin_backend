@@ -58,6 +58,7 @@ export interface PatientTimelineHeader {
   phone?: string | null | undefined;
   email?: string | null | undefined;
   blood_group?: string | null | undefined;
+  profile_image_url?: string | null | undefined;
 }
 
 export interface HealthSummary {

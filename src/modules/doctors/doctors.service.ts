@@ -40,6 +40,7 @@ export interface CreateDoctorInput {
   years_of_experience?: number | null;
   profile_image_url?: string | null;
   podcast_url?: string | null;
+  gender?: string | null;
   is_active?: boolean | null;
 }
 
@@ -76,6 +77,7 @@ export interface FormattedDoctorInfo {
   email?: string;
   profile_image_url?: string | null;
   podcast_url?: string | null;
+  gender?: string | null;
   hospitals: DoctorHospitalInfo[];
 
   specialization?: string;
@@ -159,6 +161,7 @@ export function formatDoctorInfo(row: any, hospitals: DoctorHospitalInfo[] = [])
     email: row.email || undefined,
     profile_image_url: row.profile_image_url || null,
     podcast_url: row.podcast_url || null,
+    gender: row.gender ?? null,
     hospitals,
     specialization: row.specialization,
     clinic_address: row.clinic_address,
@@ -193,7 +196,8 @@ async function ensureDoctorColumns(client: any): Promise<void> {
         ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255),
         ADD COLUMN IF NOT EXISTS city VARCHAR(100),
         ADD COLUMN IF NOT EXISTS state VARCHAR(100),
-        ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);
+        ADD COLUMN IF NOT EXISTS pincode VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS gender VARCHAR(20);
     `);
     columnsEnsured = true;
   } catch (err) {
@@ -286,6 +290,7 @@ export class DoctorsService {
           d.pincode,
           d.profile_image_url,
           d.podcast_url,
+          d.gender,
           d.created_at,
           d.updated_at,
           dr_stats.average_rating,
@@ -380,6 +385,7 @@ export class DoctorsService {
           d.pincode,
           d.profile_image_url,
           d.podcast_url,
+          d.gender,
           d.created_at,
           d.updated_at,
           dr_stats.average_rating,
@@ -444,9 +450,9 @@ export class DoctorsService {
           user_account_id, hospital_id, branch_id, name, phone, email, specialization, status, 
           qualification, medical_registration_number, clinic_address, 
           address_line_1, address_line_2, city, state, pincode,
-          years_of_experience, is_active, profile_image_url, podcast_url, created_at, updated_at
+          years_of_experience, is_active, profile_image_url, podcast_url, gender, created_at, updated_at
         ) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW()) RETURNING *`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW()) RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -468,6 +474,7 @@ export class DoctorsService {
           data.is_active !== undefined ? data.is_active : true,
           data.profile_image_url || null,
           data.podcast_url || null,
+          data.gender || null,
         ],
       );
       if (rows[0]?.profile_image_url) {
@@ -501,8 +508,8 @@ export class DoctorsService {
          SET hospital_id = $1, branch_id = $2, name = $3, phone = $4, email = $5, specialization = $6, status = $7, 
              user_account_id = $8, qualification = $9, medical_registration_number = $10, clinic_address = $11, 
              address_line_1 = $12, address_line_2 = $13, city = $14, state = $15, pincode = $16,
-             years_of_experience = $17, is_active = $18, profile_image_url = $19, podcast_url = $20, updated_at = NOW() 
-         WHERE id = $21 RETURNING *`,
+             years_of_experience = $17, is_active = $18, profile_image_url = $19, podcast_url = $20, gender = $21, updated_at = NOW() 
+         WHERE id = $22 RETURNING *`,
         [
           data.hospital_id,
           data.branch_id || null,
@@ -524,6 +531,7 @@ export class DoctorsService {
           data.is_active !== undefined ? data.is_active : true,
           data.profile_image_url || null,
           data.podcast_url || null,
+          data.gender || null,
           data.id,
         ],
       );

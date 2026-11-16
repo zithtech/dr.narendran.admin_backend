@@ -33,6 +33,16 @@ medicalRecordsRouter.post(
   medicalRecordsController.uploadMedicalRecord.bind(medicalRecordsController)
 );
 
+// View / Stream Record Document (Inline PDF/Image preview)
+medicalRecordsRouter.get(
+  '/:id/file',
+  medicalRecordsController.viewRecord.bind(medicalRecordsController)
+);
+medicalRecordsRouter.get(
+  '/:id/view',
+  medicalRecordsController.viewRecord.bind(medicalRecordsController)
+);
+
 // Single Record Details
 medicalRecordsRouter.get(
   '/:id',

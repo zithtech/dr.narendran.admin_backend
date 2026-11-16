@@ -94,6 +94,32 @@ export class MedicalRecordsController {
     const result = await medicalRecordsService.getDownloadUrl(id);
     res.json(result);
   }
+
+  async viewRecord(req: Request, res: Response): Promise<void> {
+    const rawId = req.params['id'];
+    const id = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!id) {
+      throw new ValidationError('Record ID is required');
+    }
+
+    const docData = await medicalRecordsService.getRecordStream(id);
+    const isDownload = req.query['download'] === 'true' || req.query['download'] === '1';
+
+    res.setHeader('Content-Type', docData.mimeType || 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(docData.fileName)}"`
+    );
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+
+    if (docData.buffer) {
+      res.send(docData.buffer);
+    } else if (docData.stream) {
+      docData.stream.pipe(res);
+    } else {
+      res.status(404).json({ error: 'Record content is currently unavailable.' });
+    }
+  }
 }
 
 export const medicalRecordsController = new MedicalRecordsController();

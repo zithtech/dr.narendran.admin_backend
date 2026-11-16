@@ -30,6 +30,11 @@ export interface CreatePatientInput {
   date_of_birth?: string | null;
   gender?: string | null;
   address?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
   status: 'ACTIVE' | 'INACTIVE';
   height_cm?: number | null;
   weight_kg?: number | null;
@@ -44,10 +49,29 @@ export interface UpdatePatientInput extends CreatePatientInput {
   id: string;
 }
 
+let patientColumnsEnsured = false;
+async function ensurePatientColumns(client: any): Promise<void> {
+  if (patientColumnsEnsured) return;
+  try {
+    await client.query(`
+      ALTER TABLE patients 
+        ADD COLUMN IF NOT EXISTS address_line_1 VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS city VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS state VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);
+    `);
+    patientColumnsEnsured = true;
+  } catch (err) {
+    console.error('Failed to ensure patient address columns:', err);
+  }
+}
+
 export class PatientsService {
   async getAllPatients(search?: string) {
     const client = await pool.connect();
     try {
+      await ensurePatientColumns(client);
       let query = `
         SELECT p.*, 
                h.name as hospital_name, 
@@ -79,6 +103,7 @@ export class PatientsService {
   async getPatientById(id: string) {
     const client = await pool.connect();
     try {
+      await ensurePatientColumns(client);
       const {rows} = await client.query(
         'SELECT * FROM patients WHERE id = $1',
         [id],
@@ -95,9 +120,21 @@ export class PatientsService {
   async createPatient(data: CreatePatientInput) {
     const client = await pool.connect();
     try {
+      await ensurePatientColumns(client);
+      const address =
+        data.address ||
+        [data.address_line_1, data.address_line_2, data.city, data.state, data.pincode]
+          .filter(Boolean)
+          .join(', ') ||
+        null;
+
       const {rows} = await client.query(
-        `INSERT INTO patients (user_account_id, hospital_id, branch_id, name, phone, email, date_of_birth, gender, address, status, height_cm, weight_kg, blood_group, marital_status, emergency_contacts, profile_image_url, is_active, created_at, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW()) RETURNING *`,
+        `INSERT INTO patients (
+          user_account_id, hospital_id, branch_id, name, phone, email, date_of_birth, gender, 
+          address, address_line_1, address_line_2, city, state, pincode, 
+          status, height_cm, weight_kg, blood_group, marital_status, emergency_contacts, profile_image_url, is_active, created_at, updated_at
+        ) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW()) RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -107,7 +144,12 @@ export class PatientsService {
           data.email || null,
           data.date_of_birth || null,
           data.gender || null,
-          data.address || null,
+          address,
+          data.address_line_1 || null,
+          data.address_line_2 || null,
+          data.city || null,
+          data.state || null,
+          data.pincode || null,
           data.status,
           data.height_cm || null,
           data.weight_kg || null,
@@ -130,10 +172,22 @@ export class PatientsService {
   async updatePatient(data: UpdatePatientInput) {
     const client = await pool.connect();
     try {
+      await ensurePatientColumns(client);
+      const address =
+        data.address !== undefined
+          ? data.address
+          : [data.address_line_1, data.address_line_2, data.city, data.state, data.pincode]
+              .filter(Boolean)
+              .join(', ') || null;
+
       const {rows} = await client.query(
         `UPDATE patients 
-         SET user_account_id = $1, hospital_id = $2, branch_id = $3, name = $4, phone = $5, email = $6, date_of_birth = $7, gender = $8, address = $9, status = $10, height_cm = $11, weight_kg = $12, blood_group = $13, marital_status = $14, emergency_contacts = $15, profile_image_url = $16, is_active = $17, updated_at = NOW() 
-         WHERE id = $18 RETURNING *`,
+         SET user_account_id = $1, hospital_id = $2, branch_id = $3, name = $4, phone = $5, email = $6, 
+             date_of_birth = $7, gender = $8, address = $9, address_line_1 = $10, address_line_2 = $11, 
+             city = $12, state = $13, pincode = $14, status = $15, height_cm = $16, weight_kg = $17, 
+             blood_group = $18, marital_status = $19, emergency_contacts = $20, profile_image_url = $21, 
+             is_active = $22, updated_at = NOW() 
+         WHERE id = $23 RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -143,7 +197,12 @@ export class PatientsService {
           data.email || null,
           data.date_of_birth || null,
           data.gender || null,
-          data.address || null,
+          address,
+          data.address_line_1 || null,
+          data.address_line_2 || null,
+          data.city || null,
+          data.state || null,
+          data.pincode || null,
           data.status,
           data.height_cm || null,
           data.weight_kg || null,

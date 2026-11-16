@@ -1,21 +1,7 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import { linkedMedicalSchema } from './linked_medicals.schema.js';
 import { linkedMedicalsService } from './linked_medicals.service.js';
-
-const schema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  address_line_1: z.string().optional().nullable(),
-  address_line_2: z.string().optional().nullable(),
-  city: z.string().optional().nullable(),
-  state: z.string().optional().nullable(),
-  pincode: z.string().optional().nullable(),
-  phone: z.string().optional().nullable(),
-  email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),
-  map_link: z.string().url('Must be a valid URL').optional().nullable().or(z.literal('')),
-  start_time: z.string().optional().nullable().or(z.literal('')),
-  end_time: z.string().optional().nullable().or(z.literal('')),
-  status: z.enum(['ACTIVE', 'INACTIVE']),
-});
 
 export const linkedMedicalsController = {
   async getAll(req: Request, res: Response) {
@@ -25,7 +11,7 @@ export const linkedMedicalsController = {
 
   async create(req: Request, res: Response) {
     try {
-      const data = schema.parse(req.body);
+      const data = linkedMedicalSchema.parse(req.body);
       const cleanData = {
         ...data,
         address_line_1: data.address_line_1 || null,
@@ -52,7 +38,7 @@ export const linkedMedicalsController = {
 
   async update(req: Request, res: Response) {
     try {
-      const data = schema.parse(req.body);
+      const data = linkedMedicalSchema.parse(req.body);
       const cleanData = {
         ...data,
         address_line_1: data.address_line_1 || null,

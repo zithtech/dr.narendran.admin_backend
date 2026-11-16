@@ -32,6 +32,11 @@ export interface CreateDoctorInput {
   qualification?: string | null;
   medical_registration_number?: string | null;
   clinic_address?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
   years_of_experience?: number | null;
   profile_image_url?: string | null;
   podcast_url?: string | null;
@@ -75,6 +80,11 @@ export interface FormattedDoctorInfo {
 
   specialization?: string;
   clinic_address?: string;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
   years_of_experience?: number;
   qualification?: string;
   medical_registration_number?: string;
@@ -152,6 +162,11 @@ export function formatDoctorInfo(row: any, hospitals: DoctorHospitalInfo[] = [])
     hospitals,
     specialization: row.specialization,
     clinic_address: row.clinic_address,
+    address_line_1: row.address_line_1 ?? null,
+    address_line_2: row.address_line_2 ?? null,
+    city: row.city ?? null,
+    state: row.state ?? null,
+    pincode: row.pincode ?? null,
     years_of_experience: row.experience_years,
     qualification: row.qualifications,
     medical_registration_number: row.medical_registration_number,
@@ -166,6 +181,24 @@ export function formatDoctorInfo(row: any, hospitals: DoctorHospitalInfo[] = [])
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+let columnsEnsured = false;
+async function ensureDoctorColumns(client: any): Promise<void> {
+  if (columnsEnsured) return;
+  try {
+    await client.query(`
+      ALTER TABLE doctors 
+        ADD COLUMN IF NOT EXISTS address_line_1 VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS city VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS state VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);
+    `);
+    columnsEnsured = true;
+  } catch (err) {
+    console.error('Failed to ensure doctor address columns:', err);
+  }
 }
 
 export class DoctorsService {
@@ -226,6 +259,7 @@ export class DoctorsService {
   async getAllDoctors(filters?: { speciality?: string; search?: string; clinic?: string; status?: string }): Promise<FormattedDoctorInfo[]> {
     const client = await pool.connect();
     try {
+      await ensureDoctorColumns(client);
       let query = `
         SELECT 
           d.id,
@@ -245,6 +279,11 @@ export class DoctorsService {
           d.years_of_experience as experience_years,
           NULL::text as clinic_name,
           d.clinic_address,
+          d.address_line_1,
+          d.address_line_2,
+          d.city,
+          d.state,
+          d.pincode,
           d.profile_image_url,
           d.podcast_url,
           d.created_at,
@@ -314,6 +353,7 @@ export class DoctorsService {
   async getDoctorById(id: string): Promise<FormattedDoctorInfo | null> {
     const client = await pool.connect();
     try {
+      await ensureDoctorColumns(client);
       const { rows } = await client.query(`
         SELECT 
           d.id,
@@ -333,6 +373,11 @@ export class DoctorsService {
           d.years_of_experience as experience_years,
           NULL::text as clinic_name,
           d.clinic_address,
+          d.address_line_1,
+          d.address_line_2,
+          d.city,
+          d.state,
+          d.pincode,
           d.profile_image_url,
           d.podcast_url,
           d.created_at,
@@ -386,9 +431,22 @@ export class DoctorsService {
   async createDoctor(data: CreateDoctorInput) {
     const client = await pool.connect();
     try {
+      await ensureDoctorColumns(client);
+      const clinicAddress =
+        data.clinic_address ||
+        [data.address_line_1, data.address_line_2, data.city, data.state, data.pincode]
+          .filter(Boolean)
+          .join(', ') ||
+        null;
+
       const { rows } = await client.query(
-        `INSERT INTO doctors (user_account_id, hospital_id, branch_id, name, phone, email, specialization, status, qualification, medical_registration_number, clinic_address, years_of_experience, is_active, profile_image_url, podcast_url, created_at, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), NOW()) RETURNING *`,
+        `INSERT INTO doctors (
+          user_account_id, hospital_id, branch_id, name, phone, email, specialization, status, 
+          qualification, medical_registration_number, clinic_address, 
+          address_line_1, address_line_2, city, state, pincode,
+          years_of_experience, is_active, profile_image_url, podcast_url, created_at, updated_at
+        ) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW()) RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -400,7 +458,12 @@ export class DoctorsService {
           data.status,
           data.qualification || null,
           data.medical_registration_number || null,
-          data.clinic_address || null,
+          clinicAddress,
+          data.address_line_1 || null,
+          data.address_line_2 || null,
+          data.city || null,
+          data.state || null,
+          data.pincode || null,
           data.years_of_experience || null,
           data.is_active !== undefined ? data.is_active : true,
           data.profile_image_url || null,
@@ -425,10 +488,21 @@ export class DoctorsService {
   async updateDoctor(data: UpdateDoctorInput) {
     const client = await pool.connect();
     try {
+      await ensureDoctorColumns(client);
+      const clinicAddress =
+        data.clinic_address !== undefined
+          ? data.clinic_address
+          : [data.address_line_1, data.address_line_2, data.city, data.state, data.pincode]
+              .filter(Boolean)
+              .join(', ') || null;
+
       const { rows } = await client.query(
         `UPDATE doctors 
-         SET hospital_id = $1, branch_id = $2, name = $3, phone = $4, email = $5, specialization = $6, status = $7, user_account_id = $8, qualification = $9, medical_registration_number = $10, clinic_address = $11, years_of_experience = $12, is_active = $13, profile_image_url = $14, podcast_url = $15, updated_at = NOW() 
-         WHERE id = $16 RETURNING *`,
+         SET hospital_id = $1, branch_id = $2, name = $3, phone = $4, email = $5, specialization = $6, status = $7, 
+             user_account_id = $8, qualification = $9, medical_registration_number = $10, clinic_address = $11, 
+             address_line_1 = $12, address_line_2 = $13, city = $14, state = $15, pincode = $16,
+             years_of_experience = $17, is_active = $18, profile_image_url = $19, podcast_url = $20, updated_at = NOW() 
+         WHERE id = $21 RETURNING *`,
         [
           data.hospital_id,
           data.branch_id || null,
@@ -440,7 +514,12 @@ export class DoctorsService {
           data.user_account_id || null,
           data.qualification || null,
           data.medical_registration_number || null,
-          data.clinic_address || null,
+          clinicAddress,
+          data.address_line_1 || null,
+          data.address_line_2 || null,
+          data.city || null,
+          data.state || null,
+          data.pincode || null,
           data.years_of_experience || null,
           data.is_active !== undefined ? data.is_active : true,
           data.profile_image_url || null,

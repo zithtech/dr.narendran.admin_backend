@@ -1,14 +1,12 @@
 import type {Request, Response} from 'express';
 import {z} from 'zod';
 
+import {
+  createUserAccountSchema,
+  updateUserAccountSchema,
+  userAccountParamIdSchema,
+} from './user_accounts.schema.js';
 import {userAccountsService} from './user_accounts.service.js';
-
-const userAccountSchema = z.object({
-  username: z.string().min(1, 'Username is required'),
-  password: z.string().optional().nullable(),
-  role: z.enum(['ADMIN', 'DOCTOR', 'PATIENT']),
-  status: z.enum(['ACTIVE', 'INACTIVE']),
-});
 
 export const UserAccountsController = {
   async getAll(req: Request, res: Response) {
@@ -22,18 +20,12 @@ export const UserAccountsController = {
 
   async create(req: Request, res: Response) {
     try {
-      const data = userAccountSchema.parse(req.body);
-      if (!data.password) {
-        res.status(400).json({
-          error: 'Password is required when creating a new user account',
-        });
-        return;
-      }
+      const data = createUserAccountSchema.parse(req.body);
       const userAccount = await userAccountsService.createUserAccount(data);
       res.status(201).json(userAccount);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
-        res.status(400).json({error: (err as any).issues[0].message});
+        res.status(400).json({error: (err as any).issues[0].message, errors: err.issues});
         return;
       }
       // Check for unique constraint violation on username
@@ -47,14 +39,14 @@ export const UserAccountsController = {
 
   async update(req: Request, res: Response) {
     try {
-      const id = String(req.params['id']);
-      if (!id) {
-        res.status(400).json({error: 'Invalid user account ID'});
+      const paramResult = userAccountParamIdSchema.safeParse(req.params);
+      if (!paramResult.success) {
+        res.status(400).json({error: paramResult.error.issues[0]?.message || 'Invalid user account ID'});
         return;
       }
-      const data = userAccountSchema.parse(req.body);
+      const data = updateUserAccountSchema.parse(req.body);
       const userAccount = await userAccountsService.updateUserAccount({
-        id,
+        id: paramResult.data.id,
         ...data,
       });
       if (!userAccount) {
@@ -64,7 +56,7 @@ export const UserAccountsController = {
       res.json(userAccount);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
-        res.status(400).json({error: (err as any).issues[0].message});
+        res.status(400).json({error: (err as any).issues[0].message, errors: err.issues});
         return;
       }
       if ((err as any).code === '23505') {
@@ -77,12 +69,12 @@ export const UserAccountsController = {
 
   async delete(req: Request, res: Response) {
     try {
-      const id = String(req.params['id']);
-      if (!id) {
-        res.status(400).json({error: 'Invalid user account ID'});
+      const paramResult = userAccountParamIdSchema.safeParse(req.params);
+      if (!paramResult.success) {
+        res.status(400).json({error: paramResult.error.issues[0]?.message || 'Invalid user account ID'});
         return;
       }
-      const success = await userAccountsService.deleteUserAccount(id);
+      const success = await userAccountsService.deleteUserAccount(paramResult.data.id);
       if (!success) {
         res.status(404).json({error: 'User account not found'});
         return;

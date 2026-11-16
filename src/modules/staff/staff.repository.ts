@@ -43,6 +43,11 @@ export async function ensureStaffTable(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_hospital_staff_status ON hospital_staff(status);
 
       ALTER TABLE hospital_staff ADD COLUMN IF NOT EXISTS work_days VARCHAR(255) DEFAULT 'Mon,Tue,Wed,Thu,Fri';
+      ALTER TABLE hospital_staff ADD COLUMN IF NOT EXISTS address_line_1 VARCHAR(255);
+      ALTER TABLE hospital_staff ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255);
+      ALTER TABLE hospital_staff ADD COLUMN IF NOT EXISTS city VARCHAR(100);
+      ALTER TABLE hospital_staff ADD COLUMN IF NOT EXISTS state VARCHAR(100);
+      ALTER TABLE hospital_staff ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);
     `);
     tableEnsured = true;
   } catch (err) {
@@ -80,6 +85,13 @@ function mapRowToStaffMember(row: any): StaffMember {
 
   if (row.email) staff.email = row.email;
   if (row.address) staff.address = row.address;
+  if (row.address_line_1 !== undefined) staff.address_line_1 = row.address_line_1;
+  if (row.address_line_2 !== undefined) staff.address_line_2 = row.address_line_2;
+  if (row.city !== undefined) staff.city = row.city;
+  if (row.state !== undefined) staff.state = row.state;
+  if (row.pincode !== undefined) staff.pincode = row.pincode;
+  staff.addressLine1 = row.address_line_1 || null;
+  staff.addressLine2 = row.address_line_2 || null;
   if (row.hospital_id) staff.hospitalId = row.hospital_id;
   if (row.hospital_name) staff.hospitalName = row.hospital_name;
   if (row.branch_id) staff.branchId = row.branch_id;
@@ -206,6 +218,17 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
   const joiningDate = input.joiningDate || input.joining_date || new Date().toISOString().split('T')[0];
   const status = input.status || 'ACTIVE';
 
+  const line1 = input.address_line_1 ?? input.addressLine1 ?? null;
+  const line2 = input.address_line_2 ?? input.addressLine2 ?? null;
+  const city = input.city ?? null;
+  const state = input.state ?? null;
+  const pincode = input.pincode ?? null;
+
+  const address =
+    input.address ||
+    [line1, line2, city, state, pincode].filter(Boolean).join(', ') ||
+    null;
+
   const insertSql = `
     INSERT INTO hospital_staff (
       staff_code,
@@ -213,6 +236,11 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
       phone,
       email,
       address,
+      address_line_1,
+      address_line_2,
+      city,
+      state,
+      pincode,
       role,
       hospital_id,
       branch_id,
@@ -226,7 +254,7 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
       created_at,
       updated_at
     ) VALUES (
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '[]'::jsonb, NOW(), NOW()
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, '[]'::jsonb, NOW(), NOW()
     ) RETURNING *
   `;
 
@@ -235,7 +263,12 @@ export async function createStaff(input: CreateStaffInput): Promise<StaffMember>
     input.name.trim(),
     input.phone.trim(),
     input.email?.trim() || null,
-    input.address?.trim() || null,
+    address,
+    line1?.trim() || null,
+    line2?.trim() || null,
+    city?.trim() || null,
+    state?.trim() || null,
+    pincode?.trim() || null,
     input.role.trim(),
     hospitalId,
     branchId,
@@ -268,9 +301,43 @@ export async function updateStaff(id: string, input: UpdateStaffInput): Promise<
     values.push(input.email?.trim() || null);
     updates.push(`email = $${values.length}`);
   }
+  const line1 = input.address_line_1 !== undefined ? input.address_line_1 : input.addressLine1;
+  if (line1 !== undefined) {
+    values.push(line1?.trim() || null);
+    updates.push(`address_line_1 = $${values.length}`);
+  }
+  const line2 = input.address_line_2 !== undefined ? input.address_line_2 : input.addressLine2;
+  if (line2 !== undefined) {
+    values.push(line2?.trim() || null);
+    updates.push(`address_line_2 = $${values.length}`);
+  }
+  if (input.city !== undefined) {
+    values.push(input.city?.trim() || null);
+    updates.push(`city = $${values.length}`);
+  }
+  if (input.state !== undefined) {
+    values.push(input.state?.trim() || null);
+    updates.push(`state = $${values.length}`);
+  }
+  if (input.pincode !== undefined) {
+    values.push(input.pincode?.trim() || null);
+    updates.push(`pincode = $${values.length}`);
+  }
   if (input.address !== undefined) {
     values.push(input.address?.trim() || null);
     updates.push(`address = $${values.length}`);
+  } else if (
+    line1 !== undefined ||
+    line2 !== undefined ||
+    input.city !== undefined ||
+    input.state !== undefined ||
+    input.pincode !== undefined
+  ) {
+    const parts = [line1, line2, input.city, input.state, input.pincode].filter(Boolean);
+    if (parts.length > 0) {
+      values.push(parts.join(', '));
+      updates.push(`address = $${values.length}`);
+    }
   }
   if (input.role !== undefined) {
     values.push(input.role.trim());

@@ -26,6 +26,12 @@ export interface PrescriptionMedicineItem {
   food_instruction?: string | undefined;
   instructions?: string | undefined;
   prescribed_quantity: number;
+  generic_name?: string | undefined;
+  dosage_form?: string | undefined;
+  manufacturer?: string | undefined;
+  therapeutic_category?: string | undefined;
+  mrp?: number | null | undefined;
+  final_price?: number | null | undefined;
 }
 
 export interface RecommendedLabDetails {
@@ -226,7 +232,7 @@ export class PrescriptionsService {
       if (filters?.search && filters.search.trim().length > 0) {
         const term = `%${filters.search.trim()}%`;
         whereClauses.push(
-          `(pat.name ILIKE $${paramIdx} OR pat.phone ILIKE $${paramIdx} OR d.name ILIKE $${paramIdx} OR p.additional_notes ILIKE $${paramIdx})`
+          `(COALESCE(pat.name, appt.patient_name, '') ILIKE $${paramIdx} OR COALESCE(pat.phone, appt.patient_phone, '') ILIKE $${paramIdx} OR d.name ILIKE $${paramIdx} OR p.additional_notes ILIKE $${paramIdx})`
         );
         params.push(term);
         paramIdx++;
@@ -252,15 +258,27 @@ export class PrescriptionsService {
           p.follow_up_days,
           p.follow_up_date,
           p.follow_up_status,
-          pat.name as patient_name,
-          pat.phone as patient_phone,
-          pat.gender as patient_gender,
-          pat.date_of_birth as patient_dob,
+          COALESCE(NULLIF(pat.name, ''), NULLIF(pat_appt.name, ''), appt.patient_name, 'Patient') as patient_name,
+          COALESCE(NULLIF(pat.phone, ''), NULLIF(pat_appt.phone, ''), appt.patient_phone) as patient_phone,
+          COALESCE(pat.gender, pat_appt.gender) as patient_gender,
+          COALESCE(pat.date_of_birth, pat_appt.date_of_birth) as patient_dob,
           d.id as doctor_id,
           d.name as doctor_name,
           COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty
         FROM prescriptions p
-        LEFT JOIN patients pat ON p.patient_id = pat.id
+        LEFT JOIN patients pat ON (
+          p.patient_id = pat.id 
+          OR p.patient_id = pat.user_account_id 
+          OR p.patient_id = pat.user_id
+        )
+        LEFT JOIN appointments appt ON p.appointment_id = appt.id
+        LEFT JOIN patients pat_appt ON (
+          pat.id IS NULL AND (
+            appt.patient_id = pat_appt.id 
+            OR appt.patient_id = pat_appt.user_account_id 
+            OR appt.patient_id = pat_appt.user_id
+          )
+        )
         LEFT JOIN doctors d ON p.doctor_id = d.id
         ${whereClause}
         ORDER BY p.prescription_date DESC, p.created_at DESC
@@ -274,9 +292,17 @@ export class PrescriptionsService {
       const rxIds = rows.map((r: any) => r.id);
 
       const medRes = await client.query(`
-        SELECT * FROM prescription_medicines 
-        WHERE prescription_id = ANY($1::uuid[])
-        ORDER BY created_at ASC
+        SELECT pm.*, 
+               m.generic_name, 
+               m.dosage_form, 
+               m.manufacturer, 
+               m.therapeutic_category, 
+               m.mrp, 
+               m.final_price
+        FROM prescription_medicines pm
+        LEFT JOIN medicines m ON pm.medicine_id = m.id
+        WHERE pm.prescription_id = ANY($1::uuid[])
+        ORDER BY pm.created_at ASC
       `, [rxIds]);
 
       const medMap = new Map<string, PrescriptionMedicineItem[]>();
@@ -296,6 +322,12 @@ export class PrescriptionsService {
           food_instruction: m.food_instruction || undefined,
           instructions: m.instructions || undefined,
           prescribed_quantity: parseInt(m.prescribed_quantity, 10) || 1,
+          generic_name: m.generic_name || undefined,
+          dosage_form: m.dosage_form || undefined,
+          manufacturer: m.manufacturer || undefined,
+          therapeutic_category: m.therapeutic_category || undefined,
+          mrp: m.mrp != null ? Number(m.mrp) : null,
+          final_price: m.final_price != null ? Number(m.final_price) : null,
         });
       }
 
@@ -438,15 +470,27 @@ export class PrescriptionsService {
           p.follow_up_days,
           p.follow_up_date,
           p.follow_up_status,
-          pat.name as patient_name,
-          pat.phone as patient_phone,
-          pat.gender as patient_gender,
-          pat.date_of_birth as patient_dob,
+          COALESCE(NULLIF(pat.name, ''), NULLIF(pat_appt.name, ''), appt.patient_name, 'Patient') as patient_name,
+          COALESCE(NULLIF(pat.phone, ''), NULLIF(pat_appt.phone, ''), appt.patient_phone) as patient_phone,
+          COALESCE(pat.gender, pat_appt.gender) as patient_gender,
+          COALESCE(pat.date_of_birth, pat_appt.date_of_birth) as patient_dob,
           d.id as doctor_id,
           d.name as doctor_name,
           COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty
         FROM prescriptions p
-        LEFT JOIN patients pat ON p.patient_id = pat.id
+        LEFT JOIN patients pat ON (
+          p.patient_id = pat.id 
+          OR p.patient_id = pat.user_account_id 
+          OR p.patient_id = pat.user_id
+        )
+        LEFT JOIN appointments appt ON p.appointment_id = appt.id
+        LEFT JOIN patients pat_appt ON (
+          pat.id IS NULL AND (
+            appt.patient_id = pat_appt.id 
+            OR appt.patient_id = pat_appt.user_account_id 
+            OR appt.patient_id = pat_appt.user_id
+          )
+        )
         LEFT JOIN doctors d ON p.doctor_id = d.id
         WHERE p.id = $1
       `, [id]);
@@ -455,9 +499,17 @@ export class PrescriptionsService {
       const r = rows[0];
 
       const medRes = await client.query(`
-        SELECT * FROM prescription_medicines 
-        WHERE prescription_id = $1
-        ORDER BY created_at ASC
+        SELECT pm.*, 
+               m.generic_name, 
+               m.dosage_form, 
+               m.manufacturer, 
+               m.therapeutic_category, 
+               m.mrp, 
+               m.final_price
+        FROM prescription_medicines pm
+        LEFT JOIN medicines m ON pm.medicine_id = m.id
+        WHERE pm.prescription_id = $1
+        ORDER BY pm.created_at ASC
       `, [id]);
 
       const meds: PrescriptionMedicineItem[] = medRes.rows.map((m: any) => ({
@@ -472,6 +524,12 @@ export class PrescriptionsService {
         food_instruction: m.food_instruction || undefined,
         instructions: m.instructions || undefined,
         prescribed_quantity: parseInt(m.prescribed_quantity, 10) || 1,
+        generic_name: m.generic_name || undefined,
+        dosage_form: m.dosage_form || undefined,
+        manufacturer: m.manufacturer || undefined,
+        therapeutic_category: m.therapeutic_category || undefined,
+        mrp: m.mrp != null ? Number(m.mrp) : null,
+        final_price: m.final_price != null ? Number(m.final_price) : null,
       }));
 
       const labRes = await client.query(`
@@ -623,17 +681,32 @@ export class PrescriptionsService {
         `SELECT id, name, phone, gender, date_of_birth, user_account_id FROM patients WHERE id = $1 LIMIT 1`,
         [resolvedPatientId]
       );
-      if (patRes.rows.length === 0) {
-        // Fallback: see if resolvedPatientId is a user_account_id
+      let patientMeta = patRes.rows[0];
+      if (!patientMeta) {
+        // Fallback: see if resolvedPatientId is a user_account_id or user_id
         const patByUa = await client.query(
-          `SELECT id, name, phone, gender, date_of_birth, user_account_id FROM patients WHERE user_account_id = $1 LIMIT 1`,
+          `SELECT id, name, phone, gender, date_of_birth, user_account_id FROM patients WHERE user_account_id = $1 OR user_id = $1 LIMIT 1`,
           [resolvedPatientId]
         );
         if (patByUa.rows.length > 0) {
           resolvedPatientId = patByUa.rows[0].id;
+          patientMeta = patByUa.rows[0];
         }
       }
-      const patientMeta = patRes.rows[0] || {};
+      if (!patientMeta && input.appointmentId) {
+        const apptPatRes = await client.query(
+          `SELECT patient_name, patient_phone FROM appointments WHERE id = $1 LIMIT 1`,
+          [input.appointmentId]
+        );
+        if (apptPatRes.rows.length > 0) {
+          patientMeta = {
+            id: resolvedPatientId,
+            name: apptPatRes.rows[0].patient_name,
+            phone: apptPatRes.rows[0].patient_phone,
+          };
+        }
+      }
+      patientMeta = patientMeta || {};
 
       // 2. Resolve Doctor ID
       let resolvedDoctorId: string | null | undefined = input.doctorId;

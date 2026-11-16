@@ -19,8 +19,11 @@ const roleSchema = z.object({
       z.object({
         module_slug: z.string(),
         can_read: z.boolean().default(false),
-        can_write: z.boolean().default(false),
+        can_write: z.boolean().optional(),
+        can_create: z.boolean().optional(),
+        can_update: z.boolean().optional(),
         can_delete: z.boolean().default(false),
+        can_manage: z.boolean().optional(),
       }),
     )
     .default([]),

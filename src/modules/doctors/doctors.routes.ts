@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { requireAuth, requireRole } from '@/http/middleware/authenticate.js';
+import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 
 import { DoctorsController } from './doctors.controller.js';
 
@@ -17,16 +18,29 @@ doctorsRouter.put('/me/locations/:id', requireAuth, DoctorsController.updateLoca
 doctorsRouter.delete('/me/locations/:id', requireAuth, DoctorsController.deleteLocation);
 doctorsRouter.put('/me/locations/:id/primary', requireAuth, DoctorsController.setPrimaryLocation);
 
-// Admin Doctor Locations Management (Requires Admin Role)
-doctorsRouter.get('/:doctorId/locations/all', requireAuth, requireRole('admin'), DoctorsController.adminGetDoctorLocations);
-doctorsRouter.post('/:doctorId/locations', requireAuth, requireRole('admin'), DoctorsController.adminCreateDoctorLocation);
-doctorsRouter.put('/:doctorId/locations/:locationId', requireAuth, requireRole('admin'), DoctorsController.adminUpdateDoctorLocation);
-doctorsRouter.delete('/:doctorId/locations/:locationId', requireAuth, requireRole('admin'), DoctorsController.adminDeleteDoctorLocation);
-doctorsRouter.put('/:doctorId/locations/:locationId/primary', requireAuth, requireRole('admin'), DoctorsController.adminSetPrimaryLocation);
+// Admin Doctor Locations Management (Requires RBAC Permission for Location Management or Doctors)
+doctorsRouter.get('/:doctorId/locations/all', requireAuth, requirePermission('LOCATIONS', 'read', ['DOCTORS']), DoctorsController.adminGetDoctorLocations);
+doctorsRouter.post('/:doctorId/locations', requireAuth, requirePermission('LOCATIONS', 'create', ['DOCTORS']), DoctorsController.adminCreateDoctorLocation);
+doctorsRouter.put('/:doctorId/locations/:locationId', requireAuth, requirePermission('LOCATIONS', 'update', ['DOCTORS']), DoctorsController.adminUpdateDoctorLocation);
+doctorsRouter.delete('/:doctorId/locations/:locationId', requireAuth, requirePermission('LOCATIONS', 'delete', ['DOCTORS']), DoctorsController.adminDeleteDoctorLocation);
+doctorsRouter.put('/:doctorId/locations/:locationId/primary', requireAuth, requirePermission('LOCATIONS', 'update', ['DOCTORS']), DoctorsController.adminSetPrimaryLocation);
 
-doctorsRouter.get('/', DoctorsController.getAll);
-doctorsRouter.get('/:id/locations', DoctorsController.getDoctorLocationsById);
-doctorsRouter.get('/:id', DoctorsController.getById);
-doctorsRouter.post('/', DoctorsController.create);
-doctorsRouter.put('/:id', DoctorsController.update);
-doctorsRouter.delete('/:id', DoctorsController.delete);
+// Doctor Catalog & Management
+doctorsRouter.get(
+  '/',
+  requirePermission('DOCTORS', 'read', ['AVAILABILITY', 'APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS', 'REVIEWS', 'PATIENTS', 'LOCATIONS', 'PATIENT_TIMELINES', 'MEDICAL_RECORDS']),
+  DoctorsController.getAll,
+);
+doctorsRouter.get(
+  '/:id/locations',
+  requirePermission('LOCATIONS', 'read', ['DOCTORS', 'AVAILABILITY', 'APPOINTMENTS', 'TODAYS_SCHEDULE']),
+  DoctorsController.getDoctorLocationsById,
+);
+doctorsRouter.get(
+  '/:id',
+  requirePermission('DOCTORS', 'read', ['AVAILABILITY', 'APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS', 'REVIEWS']),
+  DoctorsController.getById,
+);
+doctorsRouter.post('/', requirePermission('DOCTORS', 'create'), DoctorsController.create);
+doctorsRouter.put('/:id', requirePermission('DOCTORS', 'update'), DoctorsController.update);
+doctorsRouter.delete('/:id', requirePermission('DOCTORS', 'delete'), DoctorsController.delete);

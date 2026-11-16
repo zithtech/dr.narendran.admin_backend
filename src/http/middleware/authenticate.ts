@@ -76,6 +76,7 @@ export const requireAuth: RequestHandler = (req, _res, next) => {
         id: current.id,
         email: current.email,
         role: current.role,
+        ...(current.rbacRole ? {rbacRole: current.rbacRole} : {}),
       };
       next();
     } catch (error) {

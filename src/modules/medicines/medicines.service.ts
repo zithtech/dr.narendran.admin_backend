@@ -48,19 +48,23 @@ export async function bulkImportMedicines(input: BulkImportInput) {
 }
 
 
-export async function listPackages(doctorId: string) {
+export async function listPackages(doctorId?: string | null) {
   return repository.listPackages(doctorId);
 }
 
-export async function createPackage(doctorId: string, input: CreatePackageInput) {
+export async function getPackageById(id: string) {
+  return repository.getPackageById(id);
+}
+
+export async function createPackage(doctorId: string | null | undefined, input: CreatePackageInput) {
   return repository.createPackage(doctorId, input);
 }
 
-export async function updatePackage(id: string, doctorId: string, input: UpdatePackageInput) {
+export async function updatePackage(id: string, doctorId: string | null | undefined, input: UpdatePackageInput) {
   return repository.updatePackage(id, doctorId, input);
 }
 
-export async function deletePackage(id: string, doctorId: string) {
+export async function deletePackage(id: string, doctorId?: string | null) {
   return repository.deletePackage(id, doctorId);
 }
 

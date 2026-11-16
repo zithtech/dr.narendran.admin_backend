@@ -1,6 +1,10 @@
 import { Router } from 'express';
 
 import { requireAuth } from '@/http/middleware/authenticate.js';
+import {
+  requirePermission,
+  requirePermissionOrPatient,
+} from '@/http/middleware/rbac.middleware.js';
 import { handler } from '@/http/middleware/validate.js';
 
 import * as controller from './appointments.controller.js';
@@ -27,8 +31,16 @@ export const appointmentsRouter: Router = Router();
 
 appointmentsRouter.use(requireAuth);
 
-appointmentsRouter.get('/', controller.getAllAppointments);
-appointmentsRouter.get('/doctor-schedules', controller.getDoctorDailySchedules);
+appointmentsRouter.get(
+  '/',
+  requirePermission('APPOINTMENTS', 'read', ['TODAYS_SCHEDULE']),
+  controller.getAllAppointments,
+);
+appointmentsRouter.get(
+  '/doctor-schedules',
+  requirePermission('TODAYS_SCHEDULE', 'read', ['APPOINTMENTS']),
+  controller.getDoctorDailySchedules,
+);
 
 appointmentsRouter.get('/doctor', controller.getDoctor);
 
@@ -39,11 +51,13 @@ appointmentsRouter.get(
 
 appointmentsRouter.post(
   '/',
+  requirePermissionOrPatient('APPOINTMENTS', 'create', ['TODAYS_SCHEDULE']),
   ...handler({ body: createAppointmentSchema }, controller.createAppointment),
 );
 
 appointmentsRouter.post(
   '/doctor-book',
+  requirePermission('APPOINTMENTS', 'create', ['TODAYS_SCHEDULE']),
   ...handler({ body: doctorBookAppointmentSchema }, controller.doctorBookAppointment),
 );
 
@@ -72,34 +86,56 @@ appointmentsRouter.post(
 appointmentsRouter.post('/upload-url', controller.getUploadUrl);
 
 // ── Availability routes MUST come before /:id ────────────────────────────────
-appointmentsRouter.get('/availability', controller.getAvailability);
+appointmentsRouter.get(
+  '/availability',
+  requirePermission('AVAILABILITY', 'read', ['DOCTORS', 'APPOINTMENTS', 'TODAYS_SCHEDULE']),
+  controller.getAvailability,
+);
 appointmentsRouter.put(
   '/availability',
+  requirePermission('AVAILABILITY', 'update'),
   ...handler({ body: UpdateAvailabilitySchema }, controller.updateAvailability),
 );
 
-appointmentsRouter.get('/availability/custom', controller.getCustomAvailability);
+appointmentsRouter.get(
+  '/availability/custom',
+  requirePermission('AVAILABILITY', 'read', ['DOCTORS', 'APPOINTMENTS', 'TODAYS_SCHEDULE']),
+  controller.getCustomAvailability,
+);
 appointmentsRouter.post(
   '/availability/custom',
+  requirePermission('AVAILABILITY', 'create'),
   ...handler({ body: AddCustomAvailabilitySchema }, controller.addCustomAvailability),
 );
 appointmentsRouter.put(
   '/availability/custom/:id',
+  requirePermission('AVAILABILITY', 'update'),
   ...handler({ body: UpdateCustomAvailabilitySchema }, controller.updateCustomAvailability),
 );
-appointmentsRouter.delete('/availability/custom/:id', controller.deleteCustomAvailability);
+appointmentsRouter.delete(
+  '/availability/custom/:id',
+  requirePermission('AVAILABILITY', 'delete'),
+  controller.deleteCustomAvailability,
+);
 
-appointmentsRouter.get('/availability/blocked', controller.getBlockedDates);
+appointmentsRouter.get(
+  '/availability/blocked',
+  requirePermission('AVAILABILITY', 'read', ['DOCTORS', 'APPOINTMENTS', 'TODAYS_SCHEDULE']),
+  controller.getBlockedDates,
+);
 appointmentsRouter.post(
   '/availability/blocked',
+  requirePermission('AVAILABILITY', 'create'),
   ...handler({ body: AddBlockedDateSchema }, controller.addBlockedDate),
 );
 appointmentsRouter.put(
   '/availability/blocked/:id',
+  requirePermission('AVAILABILITY', 'update'),
   ...handler({ body: UpdateBlockedDateSchema }, controller.updateBlockedDate),
 );
 appointmentsRouter.delete(
   '/availability/blocked/:id',
+  requirePermission('AVAILABILITY', 'delete'),
   controller.removeBlockedDate,
 );
 
@@ -108,11 +144,20 @@ appointmentsRouter.get('/:id/patient-prescriptions', controller.getPatientPrescr
 appointmentsRouter.get('/:id/prescriptions/:prescriptionId/pdf', controller.downloadPrescriptionPdf);
 appointmentsRouter.get('/:id/prescriptions/:prescriptionId/html', controller.downloadPrescriptionHtml);
 
-appointmentsRouter.patch('/:id/complete', controller.markComplete);
-appointmentsRouter.post('/:id/prescription', controller.savePrescription);
+appointmentsRouter.patch(
+  '/:id/complete',
+  requirePermission('APPOINTMENTS', 'update', ['TODAYS_SCHEDULE']),
+  controller.markComplete,
+);
+appointmentsRouter.post(
+  '/:id/prescription',
+  requirePermission('PRESCRIPTIONS', 'create'),
+  controller.savePrescription,
+);
 
 appointmentsRouter.post(
   '/:id/reschedule',
+  requirePermissionOrPatient('APPOINTMENTS', 'update', ['TODAYS_SCHEDULE']),
   ...handler(
     { body: rescheduleAppointmentSchema },
     controller.rescheduleAppointment,
@@ -164,11 +209,13 @@ appointmentsRouter.post(
 
 appointmentsRouter.post(
   '/:id/cancel',
+  requirePermissionOrPatient('APPOINTMENTS', 'delete', ['TODAYS_SCHEDULE']),
   ...handler({ body: cancelAppointmentSchema }, controller.cancelAppointment),
 );
 
 appointmentsRouter.put(
   '/:id',
+  requirePermission('APPOINTMENTS', 'update', ['TODAYS_SCHEDULE']),
   ...handler(
     { body: updateAppointmentSchema },
     controller.updateAppointment,

@@ -43,6 +43,7 @@ export interface UserAuthContext {
   id: string;
   email: string;
   role: UserRole;
+  rbacRole?: string | undefined;
   tokenVersion: number;
 }
 

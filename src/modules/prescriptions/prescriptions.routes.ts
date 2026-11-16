@@ -1,6 +1,10 @@
 import { Router } from "express";
 
 import { requireAuth } from "@/http/middleware/authenticate.js";
+import {
+  requirePermission,
+  requirePermissionOrPatient,
+} from "@/http/middleware/rbac.middleware.js";
 
 import { MedicineScheduleController } from "./medicineSchedule.controller.js";
 import { PrescriptionsController } from "./prescriptions.controller.js";
@@ -16,15 +20,45 @@ prescriptionsRouter.get("/schedule/patient/:patientId/monitoring", requireAuth, 
 prescriptionsRouter.post("/schedule/check-reminders", MedicineScheduleController.checkReminders);
 
 // Prescription endpoints
-prescriptionsRouter.get("/", requireAuth, PrescriptionsController.getAll);
-prescriptionsRouter.get("/history", requireAuth, PrescriptionsController.getHistory);
-prescriptionsRouter.get("/patient/:patientId", requireAuth, PrescriptionsController.getByPatient);
-prescriptionsRouter.get("/appointment/:appointmentId", requireAuth, PrescriptionsController.getByAppointment);
+prescriptionsRouter.get(
+  "/",
+  requireAuth,
+  requirePermission("PRESCRIPTIONS", "read", ["APPOINTMENTS", "TODAYS_SCHEDULE", "PATIENTS"]),
+  PrescriptionsController.getAll,
+);
+prescriptionsRouter.get(
+  "/history",
+  requireAuth,
+  requirePermission("PRESCRIPTIONS", "read", ["APPOINTMENTS", "TODAYS_SCHEDULE", "PATIENTS"]),
+  PrescriptionsController.getHistory,
+);
+prescriptionsRouter.get(
+  "/patient/:patientId",
+  requireAuth,
+  requirePermissionOrPatient("PRESCRIPTIONS", "read", ["APPOINTMENTS", "TODAYS_SCHEDULE", "PATIENTS"]),
+  PrescriptionsController.getByPatient,
+);
+prescriptionsRouter.get(
+  "/appointment/:appointmentId",
+  requireAuth,
+  requirePermissionOrPatient("PRESCRIPTIONS", "read", ["APPOINTMENTS", "TODAYS_SCHEDULE", "PATIENTS"]),
+  PrescriptionsController.getByAppointment,
+);
 
-prescriptionsRouter.post("/", requireAuth, PrescriptionsController.create);
-prescriptionsRouter.put("/:id", requireAuth, PrescriptionsController.update);
+prescriptionsRouter.post("/", requireAuth, requirePermission("PRESCRIPTIONS", "create"), PrescriptionsController.create);
+prescriptionsRouter.put("/:id", requireAuth, requirePermission("PRESCRIPTIONS", "update"), PrescriptionsController.update);
 
 prescriptionsRouter.get("/:id/pdf", PrescriptionsController.downloadPdf);
 prescriptionsRouter.get("/:id/html", PrescriptionsController.downloadHtml);
-prescriptionsRouter.get("/:id/medicines", requireAuth, PrescriptionsController.getMedicines);
-prescriptionsRouter.get("/:id", requireAuth, PrescriptionsController.getById);
+prescriptionsRouter.get(
+  "/:id/medicines",
+  requireAuth,
+  requirePermissionOrPatient("PRESCRIPTIONS", "read", ["APPOINTMENTS", "TODAYS_SCHEDULE", "PATIENTS"]),
+  PrescriptionsController.getMedicines,
+);
+prescriptionsRouter.get(
+  "/:id",
+  requireAuth,
+  requirePermissionOrPatient("PRESCRIPTIONS", "read", ["APPOINTMENTS", "TODAYS_SCHEDULE", "PATIENTS"]),
+  PrescriptionsController.getById,
+);

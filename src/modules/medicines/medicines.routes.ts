@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { requireAuth, requireRole } from '@/http/middleware/authenticate.js';
+import { requireAuth } from '@/http/middleware/authenticate.js';
+import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 import { handler } from '@/http/middleware/validate.js';
 
 import { createMedicineStrengthSchema } from '../medicine_strengths/medicine_strengths.schema.js';
@@ -26,21 +27,25 @@ const paramIdSchema = z.object({
 
 medicinesRouter.get(
   '/',
+  requirePermission('PHARMACY', 'read', ['INVENTORY', 'MEDICINE_PACKAGES', 'PRESCRIPTIONS']),
   ...handler({ query: listMedicinesSchema }, controller.listMedicines)
 );
 
 medicinesRouter.post(
   '/ai-search',
+  requirePermission('PHARMACY', 'read', ['PRESCRIPTIONS', 'INVENTORY']),
   ...handler({ body: aiSearchMedicineSchema }, controller.aiSearchMedicines)
 );
 
 medicinesRouter.post(
   '/bulk-validate',
+  requirePermission('PHARMACY', 'create'),
   ...handler({ body: bulkValidateSchema }, controller.bulkValidate)
 );
 
 medicinesRouter.post(
   '/bulk-import',
+  requirePermission('PHARMACY', 'create'),
   ...handler({ body: bulkImportSchema }, controller.bulkImport)
 );
 
@@ -48,44 +53,59 @@ medicinesRouter.post(
 medicinesRouter.get(
   '/packages/all',
   requireAuth,
+  requirePermission('MEDICINE_PACKAGES', 'read', ['PRESCRIPTIONS']),
   controller.listPackages
+);
+
+medicinesRouter.get(
+  '/packages/:id',
+  requireAuth,
+  requirePermission('MEDICINE_PACKAGES', 'read', ['PRESCRIPTIONS']),
+  ...handler({ params: paramIdSchema }, controller.getPackageById)
 );
 
 medicinesRouter.post(
   '/packages',
   requireAuth,
+  requirePermission('MEDICINE_PACKAGES', 'create'),
   ...handler({ body: createPackageSchema }, controller.createPackage)
 );
 
 medicinesRouter.put(
   '/packages/:id',
   requireAuth,
+  requirePermission('MEDICINE_PACKAGES', 'update'),
   ...handler({ params: paramIdSchema, body: updatePackageSchema }, controller.updatePackage)
 );
 
 medicinesRouter.delete(
   '/packages/:id',
   requireAuth,
+  requirePermission('MEDICINE_PACKAGES', 'delete'),
   ...handler({ params: paramIdSchema }, controller.deletePackage)
 );
 
 medicinesRouter.get(
   '/:id',
+  requirePermission('PHARMACY', 'read', ['INVENTORY', 'MEDICINE_PACKAGES', 'PRESCRIPTIONS']),
   ...handler({ params: paramIdSchema }, controller.getMedicineById)
 );
 
 medicinesRouter.post(
   '/',
+  requirePermission('PHARMACY', 'create', ['PRESCRIPTIONS']),
   ...handler({ body: createMedicineSchema }, controller.createMedicine)
 );
 
 medicinesRouter.put(
   '/:id',
+  requirePermission('PHARMACY', 'update'),
   ...handler({ params: paramIdSchema, body: updateMedicineSchema }, controller.updateMedicine)
 );
 
 medicinesRouter.delete(
   '/:id',
+  requirePermission('PHARMACY', 'delete'),
   ...handler({ params: paramIdSchema }, controller.deleteMedicine)
 );
 
@@ -93,6 +113,7 @@ medicinesRouter.delete(
 medicinesRouter.get(
   '/:id/strengths',
   requireAuth,
+  requirePermission('PHARMACY', 'read', ['INVENTORY']),
   ...handler({ params: paramIdSchema }, async (input, _req, res) => {
     const list = await strengthService.getByMedicineId(input.params.id);
     res.status(200).json({ success: true, data: list });
@@ -102,7 +123,7 @@ medicinesRouter.get(
 medicinesRouter.post(
   '/:id/strengths',
   requireAuth,
-  requireRole('admin', 'doctor'),
+  requirePermission('PHARMACY', 'create', ['INVENTORY']),
   ...handler(
     {
       params: paramIdSchema,

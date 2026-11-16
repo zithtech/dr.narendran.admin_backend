@@ -8,7 +8,6 @@ export const PrescriptionsController = {
   async getAll(req: Request, res: Response) {
     try {
       const user = (req as any).user;
-      const user_id = user?.id ? String(user.id) : (typeof req.query["user_id"] === "string" ? req.query["user_id"] : undefined);
       const patient_id = typeof req.query["patient_id"] === "string" ? req.query["patient_id"] : undefined;
       const appointment_id = typeof req.query["appointment_id"] === "string" ? req.query["appointment_id"] : undefined;
       const doctor_id = typeof req.query["doctor_id"] === "string" ? req.query["doctor_id"] : undefined;
@@ -18,10 +17,12 @@ export const PrescriptionsController = {
       const limit = req.query["limit"] ? parseInt(req.query["limit"] as string, 10) : undefined;
       const offset = req.query["offset"] ? parseInt(req.query["offset"] as string, 10) : undefined;
 
-      // If user is a patient, strictly scope to them
+      // Only scope to user_id if explicitly requested in query, OR if the requester is a patient
       let effectivePatientId = patient_id;
-      let effectiveUserId = user_id;
-      if (user?.role && user.role.toLowerCase() === 'patient') {
+      let effectiveUserId = typeof req.query["user_id"] === "string" ? req.query["user_id"] : undefined;
+
+      const userRole = (user?.role || '').toLowerCase();
+      if (userRole === 'patient') {
         effectiveUserId = String(user.id);
       }
 
@@ -45,7 +46,8 @@ export const PrescriptionsController = {
   async getHistory(req: Request, res: Response) {
     try {
       const user = (req as any).user;
-      const user_id = user?.id ? String(user.id) : (typeof req.query["user_id"] === "string" ? req.query["user_id"] : undefined);
+      const userRole = (user?.role || '').toLowerCase();
+      const user_id = userRole === 'patient' && user?.id ? String(user.id) : (typeof req.query["user_id"] === "string" ? req.query["user_id"] : undefined);
       const patient_id = typeof req.query["patient_id"] === "string" ? req.query["patient_id"] : undefined;
       const prescriptions = await prescriptionsService.getPrescriptions({ user_id, patient_id, tab: "history" });
       res.json({ status: "success", data: prescriptions });
@@ -173,8 +175,11 @@ export const PrescriptionsController = {
         return;
       }
       const { pdfBuffer, filename } = await prescriptionsService.generatePrescriptionPdf(id);
+      const disposition = req.query["inline"] === "true" ? "inline" : "attachment";
+      const safeFilename = filename.replace(/["\r\n]/g, "");
       res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      res.setHeader("Content-Disposition", `${disposition}; filename="${safeFilename}"`);
+      res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
       res.send(pdfBuffer);
     } catch (err: any) {
       res.status(500).json({ error: "Failed to generate prescription PDF", details: err.message });

@@ -1,10 +1,11 @@
 import {Router} from 'express';
 
 import {requireAuth} from '@/http/middleware/authenticate.js';
+import {requirePermission} from '@/http/middleware/rbac.middleware.js';
+import {proxyImage} from '@/modules/proxy/proxy.controller.js';
 
 import {MedicalTimelineController} from './medicalTimeline.controller.js';
 import {PatientsController} from './patients.controller.js';
-import {proxyImage} from '@/modules/proxy/proxy.controller.js';
 
 export const patientsRouter = Router();
 
@@ -23,8 +24,12 @@ patientsRouter.get('/me/medical-timeline', requireAuth, MedicalTimelineControlle
 patientsRouter.get('/me/medical-summary', requireAuth, MedicalTimelineController.getMedicalSummary);
 patientsRouter.post('/me/medical-summary', requireAuth, MedicalTimelineController.getMedicalSummary);
 
-patientsRouter.get('/', PatientsController.getAll);
-patientsRouter.post('/', PatientsController.create);
-patientsRouter.put('/:id', PatientsController.update);
-patientsRouter.delete('/:id', PatientsController.delete);
+patientsRouter.get(
+  '/',
+  requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
+  PatientsController.getAll,
+);
+patientsRouter.post('/', requirePermission('PATIENTS', 'create'), PatientsController.create);
+patientsRouter.put('/:id', requirePermission('PATIENTS', 'update'), PatientsController.update);
+patientsRouter.delete('/:id', requirePermission('PATIENTS', 'delete'), PatientsController.delete);
 

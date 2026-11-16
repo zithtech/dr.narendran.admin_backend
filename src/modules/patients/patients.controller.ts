@@ -7,7 +7,9 @@ import {patientsService} from './patients.service.js';
 export const PatientsController = {
   async getAll(req: Request, res: Response) {
     try {
-      const patients = await patientsService.getAllPatients();
+      const searchParam = req.query['search'];
+      const search = typeof searchParam === 'string' ? searchParam.trim() : undefined;
+      const patients = await patientsService.getAllPatients(search);
       res.json(patients);
     } catch (err: any) {
       res.status(500).json({error: 'Failed to fetch patients'});

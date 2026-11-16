@@ -1623,11 +1623,12 @@ export async function deleteCustomAvailability(req: Request, res: Response): Pro
 
 export async function getBlockedDates(_req: Request, res: Response): Promise<void> {
   const userId = _req.user?.id;
-  if (!userId) throw new UnauthorizedError('Authentication required.');
-
-  const doctorId = await repo.getDoctorIdByUserId(userId);
+  let doctorId = (_req.query['doctorId'] || _req.query['doctor_id']) as string | undefined;
+  if (!doctorId && userId) {
+    doctorId = (await repo.getDoctorIdByUserId(userId)) || undefined;
+  }
   if (!doctorId) {
-    res.status(404).json({ error: 'Doctor profile not found' });
+    res.status(400).json({ error: 'Doctor ID is required' });
     return;
   }
 
@@ -1641,11 +1642,12 @@ export async function addBlockedDate(
   res: Response,
 ): Promise<void> {
   const userId = req.user?.id;
-  if (!userId) throw new UnauthorizedError('Authentication required.');
-
-  const doctorId = await repo.getDoctorIdByUserId(userId);
+  let doctorId = (req.body['doctorId'] || req.body['doctor_id'] || req.query['doctorId']) as string | undefined;
+  if (!doctorId && userId) {
+    doctorId = (await repo.getDoctorIdByUserId(userId)) || undefined;
+  }
   if (!doctorId) {
-    res.status(404).json({ error: 'Doctor profile not found' });
+    res.status(400).json({ error: 'Doctor ID is required' });
     return;
   }
 
@@ -1663,11 +1665,12 @@ export async function updateBlockedDate(
   res: Response,
 ): Promise<void> {
   const userId = req.user?.id;
-  if (!userId) throw new UnauthorizedError('Authentication required.');
-
-  const doctorId = await repo.getDoctorIdByUserId(userId);
+  let doctorId = (req.body['doctorId'] || req.body['doctor_id'] || req.query['doctorId']) as string | undefined;
+  if (!doctorId && userId) {
+    doctorId = (await repo.getDoctorIdByUserId(userId)) || undefined;
+  }
   if (!doctorId) {
-    res.status(404).json({ error: 'Doctor profile not found' });
+    res.status(400).json({ error: 'Doctor ID is required' });
     return;
   }
 
@@ -1690,11 +1693,12 @@ export async function updateBlockedDate(
 
 export async function removeBlockedDate(req: Request, res: Response): Promise<void> {
   const userId = req.user?.id;
-  if (!userId) throw new UnauthorizedError('Authentication required.');
-
-  const doctorId = await repo.getDoctorIdByUserId(userId);
+  let doctorId = (req.query['doctorId'] || req.query['doctor_id']) as string | undefined;
+  if (!doctorId && userId) {
+    doctorId = (await repo.getDoctorIdByUserId(userId)) || undefined;
+  }
   if (!doctorId) {
-    res.status(404).json({ error: 'Doctor profile not found' });
+    res.status(400).json({ error: 'Doctor ID is required' });
     return;
   }
 

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
-import { requireAuth, requireRole } from '@/http/middleware/authenticate.js';
+import { requireAuth } from '@/http/middleware/authenticate.js';
+import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 
 import {
   addAdminReply,
@@ -66,22 +67,23 @@ supportRouter.post('/tickets/:id/reopen', requireAuth, reopenTicket);
 supportRouter.get('/agents', requireAuth, getActiveAgents);
 
 // ── Admin Endpoints (Mounted under /api/admin/support AND /api/support/admin) ──
-adminSupportRouter.use(requireAuth, requireRole('admin'));
+const supportSlugs = ['PATIENT_SUPPORT', 'DOCTOR_SUPPORT', 'SUPPORT'];
+adminSupportRouter.use(requireAuth);
 
-adminSupportRouter.get('/metrics', getAdminMetrics);
-adminSupportRouter.get('/agents', getActiveAgents);
-adminSupportRouter.get('/tickets', getAdminTickets);
-adminSupportRouter.get('/tickets/:id', getAdminTicketDetails);
-adminSupportRouter.patch('/tickets/:id', updateTicketProperties);
-adminSupportRouter.post('/tickets/:id/assign', assignTicket);
-adminSupportRouter.post('/tickets/:id/messages', addAdminReply);
-adminSupportRouter.post('/tickets/:id/internal-notes', addInternalNote);
-adminSupportRouter.post('/tickets/:id/ai-summary', generateAiSummary);
+adminSupportRouter.get('/metrics', requirePermission('PATIENT_SUPPORT', 'read', supportSlugs), getAdminMetrics);
+adminSupportRouter.get('/agents', requirePermission('PATIENT_SUPPORT', 'read', supportSlugs), getActiveAgents);
+adminSupportRouter.get('/tickets', requirePermission('PATIENT_SUPPORT', 'read', supportSlugs), getAdminTickets);
+adminSupportRouter.get('/tickets/:id', requirePermission('PATIENT_SUPPORT', 'read', supportSlugs), getAdminTicketDetails);
+adminSupportRouter.patch('/tickets/:id', requirePermission('PATIENT_SUPPORT', 'update', supportSlugs), updateTicketProperties);
+adminSupportRouter.post('/tickets/:id/assign', requirePermission('PATIENT_SUPPORT', 'update', supportSlugs), assignTicket);
+adminSupportRouter.post('/tickets/:id/messages', requirePermission('PATIENT_SUPPORT', 'update', supportSlugs), addAdminReply);
+adminSupportRouter.post('/tickets/:id/internal-notes', requirePermission('PATIENT_SUPPORT', 'update', supportSlugs), addInternalNote);
+adminSupportRouter.post('/tickets/:id/ai-summary', requirePermission('PATIENT_SUPPORT', 'update', supportSlugs), generateAiSummary);
 
-adminSupportRouter.get('/articles', getAdminArticles);
-adminSupportRouter.post('/articles', createAdminArticle);
-adminSupportRouter.put('/articles/:id', updateAdminArticle);
-adminSupportRouter.delete('/articles/:id', deleteAdminArticle);
+adminSupportRouter.get('/articles', requirePermission('PATIENT_SUPPORT', 'read', supportSlugs), getAdminArticles);
+adminSupportRouter.post('/articles', requirePermission('PATIENT_SUPPORT', 'create', supportSlugs), createAdminArticle);
+adminSupportRouter.put('/articles/:id', requirePermission('PATIENT_SUPPORT', 'update', supportSlugs), updateAdminArticle);
+adminSupportRouter.delete('/articles/:id', requirePermission('PATIENT_SUPPORT', 'delete', supportSlugs), deleteAdminArticle);
 
 // Also mount under supportRouter.use('/admin', adminSupportRouter) for /api/support/admin/* routes
 supportRouter.use('/admin', adminSupportRouter);

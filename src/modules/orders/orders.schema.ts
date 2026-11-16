@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const listOrdersQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
-  limit: z.coerce.number().int().positive().max(100).default(10),
+  limit: z.coerce.number().int().positive().max(500).default(10),
   sortBy: z
     .enum(['createdAt', 'totalAmount', 'orderNumber', 'status', 'paymentStatus'])
     .default('createdAt'),

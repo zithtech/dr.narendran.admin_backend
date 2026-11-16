@@ -1,23 +1,8 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 
+import { labSchema } from './labs.schema.js';
 import { LabsService, labsService } from './labs.service.js';
-
-const labSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  address_line_1: z.string().optional().nullable(),
-  address_line_2: z.string().optional().nullable(),
-  city: z.string().optional().nullable(),
-  state: z.string().optional().nullable(),
-  pincode: z.string().optional().nullable(),
-  phone: z.string().optional().nullable(),
-  email: z.string().email('Invalid email').optional().nullable().or(z.literal('')),
-  map_link: z.string().url('Must be a valid URL').optional().nullable().or(z.literal('')),
-  start_time: z.string().optional().nullable().or(z.literal('')),
-  end_time: z.string().optional().nullable().or(z.literal('')),
-  status: z.enum(['ACTIVE', 'INACTIVE']),
-  services: z.array(z.string()).optional(),
-});
 
 export const LabsController = {
   /**

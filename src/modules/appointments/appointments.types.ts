@@ -83,17 +83,17 @@ export interface Appointment {
 }
 
 export interface CreateAppointmentPayload {
-  slotId?: string | undefined;
+  slotId?: string | null | undefined;
   purpose: string;
-  patientNote?: string | undefined;
-  patientName?: string | undefined;
-  patientPhone?: string | undefined;
-  patientId?: string | undefined;
-  patient_id?: string | undefined;
-  doctorId?: string | undefined;
-  doctor_id?: string | undefined;
-  appointmentDate?: string | undefined;
-  appointmentTime?: string | undefined;
+  patientNote?: string | null | undefined;
+  patientName?: string | null | undefined;
+  patientPhone?: string | null | undefined;
+  patientId?: string | null | undefined;
+  patient_id?: string | null | undefined;
+  doctorId?: string | null | undefined;
+  doctor_id?: string | null | undefined;
+  appointmentDate?: string | null | undefined;
+  appointmentTime?: string | null | undefined;
 }
 
 export type CreateAppointmentInput = CreateAppointmentPayload;

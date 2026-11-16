@@ -169,7 +169,7 @@ export async function createAppointment(
     throw new NotFoundError('Appointment slot ID or date/time is required.');
   }
 
-  const slot = await repo.getSlotById(slotId, targetDoctorId);
+  const slot = await repo.getSlotById(slotId, targetDoctorId ?? undefined);
   if (!slot) {
     throw new NotFoundError('Appointment slot not found.');
   }
@@ -203,9 +203,9 @@ export async function createAppointment(
     scheduledEnd: scheduledEndObj.toISOString(),
     tokenNumber,
     purpose: input.purpose,
-    patientNote: input.patientNote,
-    patientName,
-    patientPhone,
+    patientNote: input.patientNote ?? undefined,
+    patientName: patientName ?? undefined,
+    patientPhone: patientPhone ?? undefined,
   });
 
   if (!appt) {
@@ -462,17 +462,17 @@ export async function updateAppointment(
   const updated = await repo.updateAppointmentTx({
     appointmentId,
     userId,
-    doctorId: input.doctorId,
-    slotId: input.slotId,
-    scheduledStart: input.scheduledStart,
-    scheduledEnd: input.scheduledEnd,
-    purpose: input.purpose,
-    patientNote: input.patientNote,
+    doctorId: input.doctorId ?? undefined,
+    slotId: input.slotId ?? undefined,
+    scheduledStart: input.scheduledStart ?? undefined,
+    scheduledEnd: input.scheduledEnd ?? undefined,
+    purpose: input.purpose ?? undefined,
+    patientNote: input.patientNote ?? undefined,
     status: input.status,
-    patientName: input.patientName,
-    patientPhone: input.patientPhone,
-    rescheduleReason: input.rescheduleReason,
-    cancellationReason: input.cancellationReason,
+    patientName: input.patientName ?? undefined,
+    patientPhone: input.patientPhone ?? undefined,
+    rescheduleReason: input.rescheduleReason ?? undefined,
+    cancellationReason: input.cancellationReason ?? undefined,
     isAdmin,
   });
 

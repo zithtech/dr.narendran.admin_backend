@@ -1,11 +1,11 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
+import {
+  createLabServiceSchema,
+  labServiceParamIdSchema,
+  updateLabServiceSchema,
+} from './lab-services.schema.js';
 import { labServicesService } from './lab-services.service.js';
-
-const labServiceSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  status: z.enum(['ACTIVE', 'INACTIVE']),
-});
 
 export const LabServicesController = {
   async getAll(req: Request, res: Response) {
@@ -19,12 +19,12 @@ export const LabServicesController = {
 
   async create(req: Request, res: Response) {
     try {
-      const data = labServiceSchema.parse(req.body);
+      const data = createLabServiceSchema.parse(req.body);
       const service = await labServicesService.createService(data);
       res.status(201).json(service);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
-        res.status(400).json({ error: (err as any).issues[0].message });
+        res.status(400).json({ error: (err as any).issues[0].message, errors: err.issues });
         return;
       }
       res.status(500).json({ error: 'Failed to create lab service' });
@@ -33,13 +33,13 @@ export const LabServicesController = {
 
   async update(req: Request, res: Response) {
     try {
-      const id = String(req.params['id']);
-      if (!id) {
-        res.status(400).json({ error: 'Invalid service ID' });
+      const paramResult = labServiceParamIdSchema.safeParse(req.params);
+      if (!paramResult.success) {
+        res.status(400).json({ error: paramResult.error.issues[0]?.message || 'Invalid service ID' });
         return;
       }
-      const data = labServiceSchema.parse(req.body);
-      const service = await labServicesService.updateService({ id, ...data });
+      const data = updateLabServiceSchema.parse(req.body);
+      const service = await labServicesService.updateService({ id: paramResult.data.id, ...data });
       if (!service) {
         res.status(404).json({ error: 'Lab service not found' });
         return;
@@ -47,7 +47,7 @@ export const LabServicesController = {
       res.json(service);
     } catch (err: unknown) {
       if (err instanceof z.ZodError) {
-        res.status(400).json({ error: (err as any).issues[0].message });
+        res.status(400).json({ error: (err as any).issues[0].message, errors: err.issues });
         return;
       }
       res.status(500).json({ error: 'Failed to update lab service' });
@@ -56,12 +56,12 @@ export const LabServicesController = {
 
   async delete(req: Request, res: Response) {
     try {
-      const id = String(req.params['id']);
-      if (!id) {
-        res.status(400).json({ error: 'Invalid service ID' });
+      const paramResult = labServiceParamIdSchema.safeParse(req.params);
+      if (!paramResult.success) {
+        res.status(400).json({ error: paramResult.error.issues[0]?.message || 'Invalid service ID' });
         return;
       }
-      const success = await labServicesService.deleteService(id);
+      const success = await labServicesService.deleteService(paramResult.data.id);
       if (!success) {
         res.status(404).json({ error: 'Lab service not found' });
         return;

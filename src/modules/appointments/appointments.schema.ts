@@ -2,18 +2,56 @@ import { z } from 'zod';
 
 export const createAppointmentSchema = z.object({
   slotId: z.string().optional(),
-  purpose: z.string().trim().min(1, 'Purpose is required'),
-  doctorId: z.string().uuid().optional(),
-  doctor_id: z.string().uuid().optional(),
-  patientId: z.string().uuid().optional(),
-  patient_id: z.string().uuid().optional(),
+  purpose: z
+    .string()
+    .trim()
+    .min(1, 'Purpose is required')
+    .max(255, 'Purpose cannot exceed 255 characters'),
+  doctorId: z.string().uuid('Invalid doctor ID').optional(),
+  doctor_id: z.string().uuid('Invalid doctor ID').optional(),
+  patientId: z.string().uuid('Invalid patient ID').optional(),
+  patient_id: z.string().uuid('Invalid patient ID').optional(),
   patientNote: z
     .string()
     .trim()
     .max(500, 'Note must be under 500 characters')
     .optional(),
-  patientName: z.string().trim().optional(),
-  patientPhone: z.string().trim().optional(),
+  patientName: z
+    .union([
+      z
+        .string()
+        .trim()
+        .min(2, 'Patient name must be at least 2 characters')
+        .max(100, 'Patient name cannot exceed 100 characters')
+        .regex(/^[a-zA-Z\s.-]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
+      z.literal(''),
+      z.null(),
+    ])
+    .optional()
+    .nullable(),
+  patientPhone: z
+    .union([
+      z
+        .string()
+        .trim()
+        .refine((val) => !val || /^[0-9+\s-]*$/.test(val), {
+          message: 'Phone number cannot contain letters or special characters',
+        })
+        .refine(
+          (val) => {
+            if (!val) return true;
+            const d = val.replace(/\D/g, '');
+            return d.length >= 7 && d.length <= 15;
+          },
+          {
+            message: 'Phone number must be between 7 and 15 digits',
+          },
+        ),
+      z.literal(''),
+      z.null(),
+    ])
+    .optional()
+    .nullable(),
   appointmentDate: z.string().optional(),
   appointmentTime: z.string().optional(),
 });
@@ -140,19 +178,58 @@ export const UpdateCustomAvailabilitySchema = z.object({
 });
 
 export const updateAppointmentSchema = z.object({
-  doctorId: z.string().uuid().optional(),
+  doctorId: z.string().uuid('Invalid doctor ID').optional(),
   slotId: z.string().optional(),
   scheduledStart: z.string().optional(),
   scheduledEnd: z.string().optional(),
-  purpose: z.string().trim().min(1, 'Purpose cannot be empty').optional(),
+  purpose: z
+    .string()
+    .trim()
+    .min(1, 'Purpose cannot be empty')
+    .max(255, 'Purpose cannot exceed 255 characters')
+    .optional(),
   patientNote: z.string().trim().max(500, 'Note must be under 500 characters').optional(),
   status: z
     .enum(['scheduled', 'confirmed', 'rescheduled', 'completed', 'cancelled', 'no_show'])
     .optional(),
-  patientName: z.string().trim().optional(),
-  patientPhone: z.string().trim().optional(),
-  rescheduleReason: z.string().trim().max(300).optional(),
-  cancellationReason: z.string().trim().max(300).optional(),
+  patientName: z
+    .union([
+      z
+        .string()
+        .trim()
+        .min(2, 'Patient name must be at least 2 characters')
+        .max(100, 'Patient name cannot exceed 100 characters')
+        .regex(/^[a-zA-Z\s.-]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
+      z.literal(''),
+      z.null(),
+    ])
+    .optional()
+    .nullable(),
+  patientPhone: z
+    .union([
+      z
+        .string()
+        .trim()
+        .refine((val) => !val || /^[0-9+\s-]*$/.test(val), {
+          message: 'Phone number cannot contain letters or special characters',
+        })
+        .refine(
+          (val) => {
+            if (!val) return true;
+            const d = val.replace(/\D/g, '');
+            return d.length >= 7 && d.length <= 15;
+          },
+          {
+            message: 'Phone number must be between 7 and 15 digits',
+          },
+        ),
+      z.literal(''),
+      z.null(),
+    ])
+    .optional()
+    .nullable(),
+  rescheduleReason: z.string().trim().max(300, 'Reason must be under 300 characters').optional(),
+  cancellationReason: z.string().trim().max(300, 'Reason must be under 300 characters').optional(),
 });
 
 export type UpdateAppointmentInput = {

@@ -5,25 +5,8 @@ import { z } from 'zod';
 import { pool } from '@/db/pool.js';
 import { logger } from '@/lib/logger.js';
 
+import { doctorSchema } from './doctors.schema.js';
 import { doctorsService } from './doctors.service.js';
-
-const doctorSchema = z.object({
-  hospital_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional().nullable(),
-  branch_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional().nullable(),
-  user_account_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional().nullable(),
-  name: z.string().min(1),
-  phone: z.string().optional().nullable(),
-  email: z.union([z.string().email(), z.literal(''), z.null()]).optional().nullable(),
-  specialization: z.string().optional().nullable(),
-  status: z.enum(['ACTIVE', 'INACTIVE']),
-  qualification: z.string().optional().nullable(),
-  medical_registration_number: z.string().optional().nullable(),
-  clinic_address: z.string().optional().nullable(),
-  years_of_experience: z.number().optional().nullable(),
-  profile_image_url: z.string().optional().nullable(),
-  podcast_url: z.string().optional().nullable(),
-  is_active: z.boolean().optional().nullable(),
-});
 
 export const CURRENT_TERMS_VERSION = 'v1.0';
 
@@ -169,7 +152,16 @@ export const DoctorsController = {
         const specialization = data.specialtyId || data.specialization || doctor.specialization;
         const qualification = data.qualifications || data.qualification || doctor.qualification;
         const medical_registration_number = data.registrationNumber || data.medical_registration_number || doctor.medical_registration_number;
-        const clinic_address = data.clinicAddress || data.clinic_address || doctor.clinic_address;
+        const address_line_1 = data.address_line_1 || data.addressLine1 || doctor.address_line_1;
+        const address_line_2 = data.address_line_2 || data.addressLine2 || doctor.address_line_2;
+        const city = data.city || doctor.city;
+        const state = data.state || doctor.state;
+        const pincode = data.pincode || doctor.pincode;
+        const clinic_address =
+          data.clinicAddress ||
+          data.clinic_address ||
+          doctor.clinic_address ||
+          [address_line_1, address_line_2, city, state, pincode].filter(Boolean).join(', ');
         const years_of_experience = data.experienceYears !== undefined ? data.experienceYears : (data.years_of_experience || data.yearsOfExperience || doctor.years_of_experience);
         const is_active = data.is_active !== undefined ? data.is_active : doctor.is_active;
 
@@ -186,6 +178,11 @@ export const DoctorsController = {
           qualification,
           medical_registration_number,
           clinic_address,
+          address_line_1,
+          address_line_2,
+          city,
+          state,
+          pincode,
           years_of_experience,
           is_active: is_active !== undefined && is_active !== null ? is_active : true,
         });
@@ -761,6 +758,11 @@ export const DoctorsController = {
         qualification: data.qualification || null,
         medical_registration_number: data.medical_registration_number || null,
         clinic_address: data.clinic_address || null,
+        address_line_1: data.address_line_1 || null,
+        address_line_2: data.address_line_2 || null,
+        city: data.city || null,
+        state: data.state || null,
+        pincode: data.pincode || null,
         years_of_experience: data.years_of_experience || null,
         profile_image_url: data.profile_image_url || null,
         podcast_url: data.podcast_url || null,
@@ -796,6 +798,11 @@ export const DoctorsController = {
         qualification: data.qualification || null,
         medical_registration_number: data.medical_registration_number || null,
         clinic_address: data.clinic_address || null,
+        address_line_1: data.address_line_1 || null,
+        address_line_2: data.address_line_2 || null,
+        city: data.city || null,
+        state: data.state || null,
+        pincode: data.pincode || null,
         years_of_experience: data.years_of_experience || null,
         profile_image_url: data.profile_image_url || null,
         podcast_url: data.podcast_url || null,

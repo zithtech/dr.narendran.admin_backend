@@ -62,29 +62,171 @@ export const initialVariantItemSchema = z
     notes: data.notes || null,
   }));
 
+export const medicineNameSchema = z
+  .string()
+  .trim()
+  .min(2, 'Medicine name must be at least 2 characters')
+  .max(150, 'Medicine name cannot exceed 150 characters')
+  .regex(/^[a-zA-Z0-9\s.,'&\-+/()]+$/, 'Medicine name contains invalid characters');
+
+export const genericNameSchema = z
+  .string()
+  .trim()
+  .max(150, 'Generic name cannot exceed 150 characters')
+  .regex(/^[a-zA-Z0-9\s.,'&\-+/()]*$/, 'Generic name contains invalid characters')
+  .optional()
+  .nullable();
+
+export const strengthSchema = z
+  .string()
+  .trim()
+  .max(50, 'Strength cannot exceed 50 characters')
+  .regex(/^[0-9a-zA-Z\s.,/+\-]*$/, 'Strength contains invalid characters')
+  .optional()
+  .nullable();
+
+export const strengthUnitSchema = z
+  .string()
+  .trim()
+  .max(20, 'Strength unit cannot exceed 20 characters')
+  .optional()
+  .nullable();
+
+export const dosageFormSchema = z
+  .string()
+  .trim()
+  .max(50, 'Dosage form cannot exceed 50 characters')
+  .optional()
+  .nullable();
+
+export const therapeuticCategorySchema = z
+  .string()
+  .trim()
+  .max(100, 'Therapeutic category cannot exceed 100 characters')
+  .optional()
+  .nullable();
+
+export const subCategorySchema = z
+  .string()
+  .trim()
+  .max(100, 'Sub category cannot exceed 100 characters')
+  .regex(/^[a-zA-Z\s\-/]*$/, 'Sub category can only contain letters, spaces, hyphens, and slashes')
+  .optional()
+  .nullable();
+
+export const manufacturerSchema = z
+  .string()
+  .trim()
+  .max(150, 'Manufacturer cannot exceed 150 characters')
+  .regex(/^[a-zA-Z0-9\s.,'&-]*$/, 'Manufacturer contains invalid characters')
+  .optional()
+  .nullable();
+
+export const medicineCodeSchema = z
+  .string()
+  .trim()
+  .max(50, 'Medicine code cannot exceed 50 characters')
+  .regex(/^[a-zA-Z0-9-_]*$/, 'Medicine code can only contain letters, numbers, hyphens, and underscores')
+  .optional()
+  .nullable();
+
+export const barcodeSchema = z
+  .string()
+  .trim()
+  .max(50, 'Barcode cannot exceed 50 characters')
+  .regex(/^[a-zA-Z0-9-]*$/, 'Barcode can only contain letters, numbers, and hyphens')
+  .optional()
+  .nullable();
+
+export const mrpSchema = z.coerce
+  .number()
+  .min(0, 'MRP cannot be negative')
+  .max(999999.99, 'MRP cannot exceed 999,999.99')
+  .optional()
+  .nullable();
+
+export const discountValueSchema = z.coerce
+  .number()
+  .min(0, 'Discount value cannot be negative')
+  .max(999999.99, 'Discount value cannot exceed 999,999.99')
+  .optional()
+  .nullable();
+
+export const finalPriceSchema = z.coerce
+  .number()
+  .min(0, 'Final price cannot be negative')
+  .max(999999.99, 'Final price cannot exceed 999,999.99')
+  .optional()
+  .nullable();
+
+export const frequencySchema = z
+  .string()
+  .trim()
+  .max(100, 'Frequency cannot exceed 100 characters')
+  .regex(/^[a-zA-Z0-9\s\-/+,]*$/, 'Frequency contains invalid characters')
+  .optional()
+  .nullable();
+
+export const durationSchema = z
+  .string()
+  .trim()
+  .max(100, 'Duration cannot exceed 100 characters')
+  .regex(/^[a-zA-Z0-9\s\-]*$/, 'Duration contains invalid characters')
+  .optional()
+  .nullable();
+
+export const descriptionSchema = z
+  .string()
+  .trim()
+  .max(1000, 'Description cannot exceed 1000 characters')
+  .optional()
+  .nullable();
+
 export const createMedicineSchema = z
   .object({
-    medicineName: z.string().min(1, 'Medicine name is required'),
-    genericName: z.string().optional().nullable(),
-    strength: z.string().optional().nullable(),
-    strengthUnit: z.string().optional().nullable(),
-    dosageForm: z.string().optional().nullable(),
-    therapeuticCategory: z.string().optional().nullable(),
-    subCategory: z.string().optional().nullable(),
-    manufacturer: z.string().optional().nullable(),
+    medicineName: medicineNameSchema,
+    genericName: genericNameSchema,
+    strength: strengthSchema,
+    strengthUnit: strengthUnitSchema,
+    dosageForm: dosageFormSchema,
+    therapeuticCategory: therapeuticCategorySchema,
+    subCategory: subCategorySchema,
+    manufacturer: manufacturerSchema,
     prescriptionRequired: z.boolean().optional().default(false),
     status: z.enum(['Active', 'Inactive']).optional().default('Active'),
-    medicineCode: z.string().optional().nullable(),
-    barcode: z.string().optional().nullable(),
-    mrp: z.coerce.number().min(0, 'MRP cannot be negative').optional().nullable(),
+    medicineCode: medicineCodeSchema,
+    barcode: barcodeSchema,
+    mrp: mrpSchema,
     discountType: discountTypeSchema,
-    discountValue: z.coerce.number().min(0, 'Discount value cannot be negative').optional().nullable(),
-    finalPrice: z.coerce.number().optional().nullable(),
-    frequency: z.string().optional().nullable(),
-    duration: z.string().optional().nullable(),
-    description: z.string().optional().nullable(),
+    discountValue: discountValueSchema,
+    finalPrice: finalPriceSchema,
+    frequency: frequencySchema,
+    duration: durationSchema,
+    description: descriptionSchema,
     initialVariants: z.array(initialVariantItemSchema).optional().nullable(),
     variants: z.array(initialVariantItemSchema).optional().nullable(),
+  })
+  .refine((data) => {
+    if (data.discountType && data.discountType.toUpperCase().includes('PERCENT')) {
+      if (data.discountValue !== null && data.discountValue !== undefined && data.discountValue > 100) {
+        return false;
+      }
+    }
+    return true;
+  }, {
+    message: 'Percentage discount cannot exceed 100%',
+    path: ['discountValue'],
+  })
+  .refine((data) => {
+    if (data.discountType && (data.discountType.toUpperCase().includes('FIXED') || data.discountType.toUpperCase().includes('FLAT'))) {
+      if (data.mrp !== null && data.mrp !== undefined && data.discountValue !== null && data.discountValue !== undefined && data.discountValue > data.mrp) {
+        return false;
+      }
+    }
+    return true;
+  }, {
+    message: 'Fixed discount cannot exceed MRP',
+    path: ['discountValue'],
   })
   .transform((data) => ({
     ...data,
@@ -93,30 +235,52 @@ export const createMedicineSchema = z
 
 export const updateMedicineSchema = z
   .object({
-    medicineName: z.string().min(1).optional(),
-    genericName: z.string().optional().nullable(),
-    strength: z.string().optional().nullable(),
-    strengthUnit: z.string().optional().nullable(),
-    dosageForm: z.string().optional().nullable(),
-    therapeuticCategory: z.string().optional().nullable(),
-    subCategory: z.string().optional().nullable(),
-    manufacturer: z.string().optional().nullable(),
+    medicineName: medicineNameSchema.optional(),
+    genericName: genericNameSchema,
+    strength: strengthSchema,
+    strengthUnit: strengthUnitSchema,
+    dosageForm: dosageFormSchema,
+    therapeuticCategory: therapeuticCategorySchema,
+    subCategory: subCategorySchema,
+    manufacturer: manufacturerSchema,
     prescriptionRequired: z.boolean().optional(),
     status: z.enum(['Active', 'Inactive']).optional(),
-    medicineCode: z.string().optional().nullable(),
-    barcode: z.string().optional().nullable(),
-    mrp: z.coerce.number().min(0).optional().nullable(),
+    medicineCode: medicineCodeSchema,
+    barcode: barcodeSchema,
+    mrp: mrpSchema,
     discountType: discountTypeSchema,
-    discountValue: z.coerce.number().min(0).optional().nullable(),
-    finalPrice: z.coerce.number().optional().nullable(),
-    frequency: z.string().optional().nullable(),
-    duration: z.string().optional().nullable(),
-    description: z.string().optional().nullable(),
+    discountValue: discountValueSchema,
+    finalPrice: finalPriceSchema,
+    frequency: frequencySchema,
+    duration: durationSchema,
+    description: descriptionSchema,
     initialVariants: z.array(initialVariantItemSchema).optional().nullable(),
     variants: z.array(initialVariantItemSchema).optional().nullable(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Provide at least one field to update',
+  })
+  .refine((data) => {
+    if (data.discountType && data.discountType.toUpperCase().includes('PERCENT')) {
+      if (data.discountValue !== null && data.discountValue !== undefined && data.discountValue > 100) {
+        return false;
+      }
+    }
+    return true;
+  }, {
+    message: 'Percentage discount cannot exceed 100%',
+    path: ['discountValue'],
+  })
+  .refine((data) => {
+    if (data.discountType && (data.discountType.toUpperCase().includes('FIXED') || data.discountType.toUpperCase().includes('FLAT'))) {
+      if (data.mrp !== null && data.mrp !== undefined && data.discountValue !== null && data.discountValue !== undefined && data.discountValue > data.mrp) {
+        return false;
+      }
+    }
+    return true;
+  }, {
+    message: 'Fixed discount cannot exceed MRP',
+    path: ['discountValue'],
   })
   .transform((data) => ({
     ...data,

@@ -1,32 +1,8 @@
 import type {Request, Response} from 'express';
 import {z} from 'zod';
 
+import {patientSchema} from './patients.schema.js';
 import {patientsService} from './patients.service.js';
-
-const patientSchema = z.object({
-  user_account_id: z.string().uuid().optional().nullable(),
-  hospital_id: z.string().uuid(),
-  branch_id: z.string().uuid().optional().nullable(),
-  name: z.string().min(1, 'Name is required'),
-  phone: z.string().optional().nullable(),
-  email: z
-    .string()
-    .email('Invalid email')
-    .optional()
-    .nullable()
-    .or(z.literal('')),
-  date_of_birth: z.string().optional().nullable().or(z.literal('')),
-  gender: z.string().optional().nullable(),
-  address: z.string().optional().nullable(),
-  status: z.enum(['ACTIVE', 'INACTIVE']),
-  height_cm: z.number().optional().nullable(),
-  weight_kg: z.number().optional().nullable(),
-  blood_group: z.string().optional().nullable(),
-  marital_status: z.string().optional().nullable(),
-  emergency_contacts: z.any().optional().nullable(),
-  profile_image_url: z.string().optional().nullable(),
-  is_active: z.boolean().optional().nullable(),
-});
 
 export const PatientsController = {
   async getAll(req: Request, res: Response) {
@@ -52,6 +28,11 @@ export const PatientsController = {
         date_of_birth: data.date_of_birth || null,
         gender: data.gender || null,
         address: data.address || null,
+        address_line_1: data.address_line_1 || null,
+        address_line_2: data.address_line_2 || null,
+        city: data.city || null,
+        state: data.state || null,
+        pincode: data.pincode || null,
         height_cm: data.height_cm || null,
         weight_kg: data.weight_kg || null,
         blood_group: data.blood_group || null,
@@ -94,6 +75,11 @@ export const PatientsController = {
         date_of_birth: data.date_of_birth || null,
         gender: data.gender || null,
         address: data.address || null,
+        address_line_1: data.address_line_1 || null,
+        address_line_2: data.address_line_2 || null,
+        city: data.city || null,
+        state: data.state || null,
+        pincode: data.pincode || null,
         height_cm: data.height_cm || null,
         weight_kg: data.weight_kg || null,
         blood_group: data.blood_group || null,

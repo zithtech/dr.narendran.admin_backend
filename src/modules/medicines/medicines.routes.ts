@@ -5,7 +5,7 @@ import { requireAuth } from '@/http/middleware/authenticate.js';
 import { requirePermission } from '@/http/middleware/rbac.middleware.js';
 import { handler } from '@/http/middleware/validate.js';
 
-import { createMedicineStrengthSchema } from '../medicine_strengths/medicine_strengths.schema.js';
+import { createMedicineStrengthBodySchema } from '../medicine_strengths/medicine_strengths.schema.js';
 import * as strengthService from '../medicine_strengths/medicine_strengths.service.js';
 import * as controller from './medicines.controller.js';
 import {
@@ -127,7 +127,7 @@ medicinesRouter.post(
   ...handler(
     {
       params: paramIdSchema,
-      body: createMedicineStrengthSchema.omit({ medicineId: true }),
+      body: createMedicineStrengthBodySchema,
     },
     async (input, _req, res) => {
       const created = await strengthService.createVariant({

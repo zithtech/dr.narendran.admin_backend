@@ -1,36 +1,93 @@
 import { z } from 'zod';
 
 export const stockInSchema = z.object({
-  quantity: z.number().int().positive('Quantity must be greater than zero'),
-  unit_cost: z.number().nonnegative().optional(),
-  reference_number: z.string().max(100).optional(),
+  quantity: z
+    .coerce
+    .number()
+    .int('Quantity must be an integer')
+    .positive('Quantity must be greater than zero')
+    .max(1000000, 'Quantity cannot exceed 1,000,000'),
+  unit_cost: z
+    .coerce
+    .number()
+    .nonnegative('Unit cost cannot be negative')
+    .max(999999.99, 'Unit cost cannot exceed 999,999.99')
+    .optional()
+    .nullable(),
+  reference_number: z
+    .string()
+    .trim()
+    .max(100, 'Reference number cannot exceed 100 characters')
+    .regex(/^[a-zA-Z0-9\-_/#\s]*$/, 'Reference number contains invalid characters')
+    .optional()
+    .nullable(),
   is_opening_stock: z.boolean().optional().default(false),
-  notes: z.string().optional(),
+  notes: z.string().trim().max(1000, 'Notes cannot exceed 1000 characters').optional().nullable(),
 });
 
 export const stockOutSchema = z.object({
-  quantity: z.number().int().positive('Quantity must be greater than zero'),
-  reference_number: z.string().max(100).optional(),
-  notes: z.string().optional(),
+  quantity: z
+    .coerce
+    .number()
+    .int('Quantity must be an integer')
+    .positive('Quantity must be greater than zero')
+    .max(1000000, 'Quantity cannot exceed 1,000,000'),
+  reference_number: z
+    .string()
+    .trim()
+    .max(100, 'Reference number cannot exceed 100 characters')
+    .regex(/^[a-zA-Z0-9\-_/#\s]*$/, 'Reference number contains invalid characters')
+    .optional()
+    .nullable(),
+  notes: z.string().trim().max(1000, 'Notes cannot exceed 1000 characters').optional().nullable(),
 });
 
 export const adjustStockSchema = z.object({
-  actual_quantity: z.number().int().nonnegative('Actual quantity cannot be negative'),
-  reason: z.string().min(3, 'A clear reason for the stock adjustment is mandatory'),
-  notes: z.string().optional(),
+  actual_quantity: z
+    .coerce
+    .number()
+    .int('Actual quantity must be an integer')
+    .nonnegative('Actual quantity cannot be negative')
+    .max(10000000, 'Actual quantity cannot exceed 10,000,000'),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'A clear reason for the stock adjustment is mandatory')
+    .max(200, 'Reason cannot exceed 200 characters'),
+  notes: z.string().trim().max(1000, 'Notes cannot exceed 1000 characters').optional().nullable(),
 });
 
 export const damagedStockSchema = z.object({
-  quantity: z.number().int().positive('Quantity must be greater than zero'),
+  quantity: z
+    .coerce
+    .number()
+    .int('Quantity must be an integer')
+    .positive('Quantity must be greater than zero')
+    .max(1000000, 'Quantity cannot exceed 1,000,000'),
   reason: z.enum(['DAMAGED', 'EXPIRED']),
-  notes: z.string().optional(),
+  notes: z.string().trim().max(1000, 'Notes cannot exceed 1000 characters').optional().nullable(),
 });
 
 export const returnStockSchema = z.object({
-  quantity: z.number().int().positive('Quantity must be greater than zero'),
-  reference_number: z.string().max(100).optional(),
-  reason: z.string().min(3, 'Reason for return is required'),
-  notes: z.string().optional(),
+  quantity: z
+    .coerce
+    .number()
+    .int('Quantity must be an integer')
+    .positive('Quantity must be greater than zero')
+    .max(1000000, 'Quantity cannot exceed 1,000,000'),
+  reference_number: z
+    .string()
+    .trim()
+    .max(100, 'Reference number cannot exceed 100 characters')
+    .regex(/^[a-zA-Z0-9\-_/#\s]*$/, 'Reference number contains invalid characters')
+    .optional()
+    .nullable(),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Reason for return is required')
+    .max(200, 'Reason cannot exceed 200 characters'),
+  notes: z.string().trim().max(1000, 'Notes cannot exceed 1000 characters').optional().nullable(),
 });
 
 export const queryHistorySchema = z.object({

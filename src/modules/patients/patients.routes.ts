@@ -1,15 +1,23 @@
 import {Router} from 'express';
+import multer from 'multer';
 
 import {requireAuth} from '@/http/middleware/authenticate.js';
 import {requirePermission} from '@/http/middleware/rbac.middleware.js';
 import {proxyImage} from '@/modules/proxy/proxy.controller.js';
+import {uploadImage} from '@/modules/upload/upload.controller.js';
 
 import {MedicalTimelineController} from './medicalTimeline.controller.js';
 import {PatientsController} from './patients.controller.js';
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 export const patientsRouter = Router();
 
-// Unauthenticated proxy for patient images
+// Image upload and unauthenticated proxy for patient images
+patientsRouter.post('/upload-image', requireAuth, upload.single('file'), uploadImage);
 patientsRouter.get('/proxy-image', proxyImage);
 
 // Authenticated Patient Medical History, Timeline & Summary (Must be defined before /:id)
@@ -28,6 +36,11 @@ patientsRouter.get(
   '/',
   requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
   PatientsController.getAll,
+);
+patientsRouter.get(
+  '/:id',
+  requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
+  PatientsController.getById,
 );
 patientsRouter.post('/', requirePermission('PATIENTS', 'create'), PatientsController.create);
 patientsRouter.put('/:id', requirePermission('PATIENTS', 'update'), PatientsController.update);

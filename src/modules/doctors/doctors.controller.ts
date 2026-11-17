@@ -61,6 +61,7 @@ export const DoctorsController = {
 
           // Construct a doctor-like object from profileRecord
           doctor = {
+            id: req.user.id,
             name: profileRecord.full_name,
             phone: profileRecord.contact_phone || username,
             email: profileRecord.contact_email,
@@ -70,6 +71,8 @@ export const DoctorsController = {
             years_of_experience: profileRecord.experience_years,
             specialization: specialtyName,
             clinic_name: profileRecord.clinic_name,
+            profile_image_url: profileRecord.profile_image_url || null,
+            gender: profileRecord.gender || null,
           };
         } else if (doctor && profileRecord) {
           let specialtyName = profileRecord.specialty || profileRecord.specialty_id;
@@ -94,6 +97,8 @@ export const DoctorsController = {
             years_of_experience: doctor.years_of_experience || profileRecord.experience_years,
             specialization: doctor.specialization || specialtyName,
             clinic_name: profileRecord.clinic_name || hospitalName,
+            profile_image_url: doctor.profile_image_url || profileRecord.profile_image_url || null,
+            gender: doctor.gender || profileRecord.gender || null,
           };
         } else if (doctor && !profileRecord) {
           let hospitalName = '';
@@ -147,8 +152,9 @@ export const DoctorsController = {
           return;
         }
 
-        const name = data.fullName || doctor.name;
-        const email = data.contactEmail || doctor.email;
+        const name = data.fullName || data.name || doctor.name;
+        const email = data.contactEmail || data.email || doctor.email;
+        const phone = data.contactPhone || data.phone || doctor.phone;
         const specialization = data.specialtyId || data.specialization || doctor.specialization;
         const qualification = data.qualifications || data.qualification || doctor.qualification;
         const medical_registration_number = data.registrationNumber || data.medical_registration_number || doctor.medical_registration_number;
@@ -164,17 +170,20 @@ export const DoctorsController = {
           [address_line_1, address_line_2, city, state, pincode].filter(Boolean).join(', ');
         const years_of_experience = data.experienceYears !== undefined ? data.experienceYears : (data.years_of_experience || data.yearsOfExperience || doctor.years_of_experience);
         const is_active = data.is_active !== undefined ? data.is_active : doctor.is_active;
+        const profile_image_url = data.profile_image_url !== undefined ? data.profile_image_url : (data.profileImageUrl !== undefined ? data.profileImageUrl : doctor.profile_image_url);
+        const podcast_url = data.podcast_url !== undefined ? data.podcast_url : (data.podcastUrl !== undefined ? data.podcastUrl : doctor.podcast_url);
+        const gender = data.gender !== undefined ? data.gender : doctor.gender;
 
         const updated = await doctorsService.updateDoctor({
           id: doctor.id,
           hospital_id: doctor.hospital_id,
           branch_id: doctor.branch_id,
           name,
-          phone: doctor.phone,
+          phone,
           email,
           specialization,
-          status: doctor.status,
-          user_account_id: doctor.user_account_id,
+          status: doctor.status || 'ACTIVE',
+          user_account_id: doctor.user_account_id || req.user.id,
           qualification,
           medical_registration_number,
           clinic_address,
@@ -185,7 +194,24 @@ export const DoctorsController = {
           pincode,
           years_of_experience,
           is_active: is_active !== undefined && is_active !== null ? is_active : true,
+          profile_image_url,
+          podcast_url,
+          gender,
         });
+
+        // Also sync profile_image_url and details to doctor_profiles if exists
+        try {
+          await client.query(
+            `UPDATE doctor_profiles 
+             SET profile_image_url = COALESCE($1, profile_image_url),
+                 full_name = COALESCE($2, full_name),
+                 updated_at = NOW() 
+             WHERE user_id = $3`,
+            [profile_image_url, name, req.user.id]
+          );
+        } catch (pe) {
+          console.warn('[updateMe] Could not sync to doctor_profiles:', pe);
+        }
 
         res.json(updated);
       } finally {
@@ -766,6 +792,7 @@ export const DoctorsController = {
         years_of_experience: data.years_of_experience || null,
         profile_image_url: data.profile_image_url || null,
         podcast_url: data.podcast_url || null,
+        gender: data.gender || null,
         is_active: data.is_active !== undefined ? data.is_active : true,
       };
       const doctor = await doctorsService.createDoctor(cleanData);
@@ -806,6 +833,7 @@ export const DoctorsController = {
         years_of_experience: data.years_of_experience || null,
         profile_image_url: data.profile_image_url || null,
         podcast_url: data.podcast_url || null,
+        gender: data.gender || null,
         is_active: data.is_active !== undefined ? data.is_active : true,
       };
       const doctor = await doctorsService.updateDoctor({ id, ...cleanData });

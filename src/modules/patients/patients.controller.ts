@@ -16,6 +16,19 @@ export const PatientsController = {
     }
   },
 
+  async getById(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const patient = await patientsService.getPatientById(String(id));
+      if (!patient) {
+        return res.status(404).json({ error: 'Patient not found' });
+      }
+      return res.json(patient);
+    } catch (err: any) {
+      return res.status(500).json({ error: 'Failed to fetch patient' });
+    }
+  },
+
   async create(req: Request, res: Response) {
     try {
       const data = patientSchema.parse(req.body);

@@ -1,4 +1,4 @@
-import {pool} from '@/db/pool.js';
+import { pool } from '@/db/pool.js';
 import { s3Service } from '@/modules/s3/s3.service.js';
 
 async function signProfileUrl(url?: string | null): Promise<string | null> {
@@ -16,6 +16,9 @@ async function signProfileUrl(url?: string | null): Promise<string | null> {
     } catch {
       return trimmed;
     }
+  }
+  if (trimmed.includes('share.google') || trimmed.includes('drive.google.com')) {
+    return `/api/patients/proxy-image?url=${encodeURIComponent(trimmed)}`;
   }
   return trimmed;
 }
@@ -86,7 +89,7 @@ export class PatientsService {
         query += ` WHERE (p.name ILIKE $1 OR p.phone ILIKE $1 OR p.email ILIKE $1) `;
       }
       query += ` ORDER BY p.created_at DESC `;
-      const {rows} = await client.query(query, params);
+      const { rows } = await client.query(query, params);
 
       for (const row of rows) {
         if (row.profile_image_url) {
@@ -104,8 +107,14 @@ export class PatientsService {
     const client = await pool.connect();
     try {
       await ensurePatientColumns(client);
-      const {rows} = await client.query(
-        'SELECT * FROM patients WHERE id = $1',
+      const { rows } = await client.query(
+        `SELECT p.*, 
+               h.name as hospital_name, 
+               b.name as branch_name 
+        FROM patients p
+        LEFT JOIN hospitals h ON p.hospital_id = h.id
+        LEFT JOIN hospital_branches b ON p.branch_id = b.id
+        WHERE p.id = $1`,
         [id],
       );
       if (rows[0]?.profile_image_url) {
@@ -128,7 +137,7 @@ export class PatientsService {
           .join(', ') ||
         null;
 
-      const {rows} = await client.query(
+      const { rows } = await client.query(
         `INSERT INTO patients (
           user_account_id, hospital_id, branch_id, name, phone, email, date_of_birth, gender, 
           address, address_line_1, address_line_2, city, state, pincode, 
@@ -177,10 +186,10 @@ export class PatientsService {
         data.address !== undefined
           ? data.address
           : [data.address_line_1, data.address_line_2, data.city, data.state, data.pincode]
-              .filter(Boolean)
-              .join(', ') || null;
+            .filter(Boolean)
+            .join(', ') || null;
 
-      const {rows} = await client.query(
+      const { rows } = await client.query(
         `UPDATE patients 
          SET user_account_id = $1, hospital_id = $2, branch_id = $3, name = $4, phone = $5, email = $6, 
              date_of_birth = $7, gender = $8, address = $9, address_line_1 = $10, address_line_2 = $11, 
@@ -226,7 +235,7 @@ export class PatientsService {
   async deletePatient(id: string) {
     const client = await pool.connect();
     try {
-      const {rowCount} = await client.query(
+      const { rowCount } = await client.query(
         'DELETE FROM patients WHERE id = $1',
         [id],
       );

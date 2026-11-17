@@ -7,7 +7,7 @@ import { s3Service } from '@/modules/s3/s3.service.js';
  * bypassing CORS, hotlink protection, and private bucket access issues.
  */
 export async function proxyImage(req: Request, res: Response): Promise<void> {
-  const urlParam = req.query['url'];
+  const urlParam = req.query['url'] || req.query['key'] || req.params['key'];
   if (!urlParam || typeof urlParam !== 'string') {
     res.status(400).send('URL query parameter is required');
     return;
@@ -17,6 +17,25 @@ export async function proxyImage(req: Request, res: Response): Promise<void> {
   if (!rawUrl) {
     res.status(400).send('Empty URL provided');
     return;
+  }
+
+  // A. Check if raw parameter is a direct local file or storage key
+  const cleanKey = decodeURIComponent(rawUrl)
+    .replace(/^\/api\/[a-z0-9_-]+\/storage\//i, '')
+    .replace(/^\/uploads\//, '');
+  if (s3Service.hasLocalFile(cleanKey) || s3Service.hasLocalFile(rawUrl)) {
+    const keyToUse = s3Service.hasLocalFile(cleanKey) ? cleanKey : rawUrl;
+    try {
+      const { stream, contentType } = await s3Service.getObjectStream(keyToUse);
+      res.setHeader('Content-Type', contentType || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      stream.pipe(res);
+      return;
+    } catch {
+      // fallback
+    }
   }
 
   // Handle Google Drive file share links
@@ -79,16 +98,27 @@ export async function proxyImage(req: Request, res: Response): Promise<void> {
 
     const contentType = response.headers.get('content-type') || 'image/jpeg';
 
-    // If an HTML preview/share page is returned, attempt to extract image meta tags
+    // If an HTML preview/share page is returned, attempt to extract image meta tags or Google Image share target
     if (contentType.includes('text/html')) {
       const htmlText = await response.text();
-      const ogMatch =
-        htmlText.match(/<meta\s+[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
-        htmlText.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
-      if (ogMatch && ogMatch[1]) {
-        const ogUrl = ogMatch[1].replace(/&amp;/g, '&');
+      let extractedUrl: string | null = null;
+
+      // Check Google Image search redirect/embed param
+      const imgUrlMatch = htmlText.match(/imgurl=([^&"'\s<>]+)/i);
+      if (imgUrlMatch && imgUrlMatch[1]) {
+        extractedUrl = decodeURIComponent(imgUrlMatch[1]);
+      } else {
+        const ogMatch =
+          htmlText.match(/<meta\s+[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
+          htmlText.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+        if (ogMatch && ogMatch[1]) {
+          extractedUrl = ogMatch[1].replace(/&amp;/g, '&');
+        }
+      }
+
+      if (extractedUrl) {
         try {
-          const imgRes = await fetch(ogUrl, {
+          const imgRes = await fetch(extractedUrl, {
             headers: {
               'User-Agent':
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',

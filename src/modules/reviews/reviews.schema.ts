@@ -108,7 +108,7 @@ export const doctorReviewsQuerySchema = z.object({
 
 export const adminReviewsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(15),
+  limit: z.coerce.number().int().min(1).max(1000).default(15),
   doctor_id: z.string().uuid().optional(),
   rating: z.coerce.number().int().min(1).max(5).optional(),
   status: z.enum(['ALL', 'ACTIVE', 'HIDDEN', 'FLAGGED']).default('ALL'),

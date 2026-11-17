@@ -163,6 +163,10 @@ export const doctorSchema = z.object({
     .union([z.string().trim().max(255, 'Podcast link cannot exceed 255 characters'), z.literal(''), z.null()])
     .optional()
     .nullable(),
+  gender: z
+    .union([z.string().trim().max(20), z.literal(''), z.null()])
+    .optional()
+    .nullable(),
   is_active: z.boolean().optional().nullable(),
 });
 

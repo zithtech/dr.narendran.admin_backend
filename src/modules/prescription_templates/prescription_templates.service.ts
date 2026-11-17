@@ -678,6 +678,14 @@ export const DEFAULT_STATIC_HTML_TEMPLATE = `<!DOCTYPE html>
       </table>
 
 
+      <!-- Physical Vitals & Metrics -->
+      {{#vitals_section}}
+      <div class="rx-vitals-block">
+        {{vitals_html}}
+      </div>
+      {{/vitals_section}}
+
+
       <!-- Diagnosis -->
       {{#diagnosis}}
       <div class="rx-diag-row">
@@ -1040,6 +1048,96 @@ export class PrescriptionTemplatesService {
   /**
    * Resolves template placeholders with structured context
    */
+  public static renderVitalsHtml(pat?: any): string {
+    if (!pat) return "";
+
+    const bp = (pat.blood_pressure || pat.vitals?.blood_pressure || "").trim();
+    const bs = (pat.blood_sugar || pat.vitals?.blood_sugar || "").trim();
+    const temp = (pat.body_temperature || pat.vitals?.body_temperature || "").trim();
+    const bg = (pat.blood_group || pat.vitals?.blood_group || "").trim();
+
+    const heightVal = pat.height_cm ?? pat.vitals?.height_cm;
+    const weightVal = pat.weight_kg ?? pat.vitals?.weight_kg;
+    const heightStr = heightVal != null && String(heightVal).trim() !== "" ? `${heightVal} cm` : "";
+    const weightStr = weightVal != null && String(weightVal).trim() !== "" ? `${weightVal} kg` : "";
+
+    let bmiStr = "";
+    if (heightVal && weightVal) {
+      const h = typeof heightVal === "number" ? heightVal : parseFloat(String(heightVal));
+      const w = typeof weightVal === "number" ? weightVal : parseFloat(String(weightVal));
+      if (h > 0 && w > 0) {
+        bmiStr = (w / ((h / 100) * (h / 100))).toFixed(1);
+      }
+    }
+
+    const rawCustom = pat.custom_vitals ?? pat.vitals?.custom_vitals;
+    const customItems: Array<{ label: string; value: string }> = [];
+    if (Array.isArray(rawCustom)) {
+      rawCustom.forEach((item) => {
+        if (item && item.label && item.value) {
+          customItems.push({ label: String(item.label).trim(), value: String(item.value).trim() });
+        }
+      });
+    } else if (rawCustom && typeof rawCustom === "object") {
+      Object.entries(rawCustom).forEach(([key, val]) => {
+        if (val != null && String(val).trim()) {
+          customItems.push({ label: key.replace(/_/g, " "), value: String(val).trim() });
+        }
+      });
+    }
+
+    const hasAnyVital = Boolean(bp || bs || temp || bg || heightStr || weightStr || bmiStr || customItems.length > 0);
+    if (!hasAnyVital) return "";
+
+    const cells: Array<{ label: string; value: string }> = [];
+    if (bp) cells.push({ label: "Blood Pressure (BP)", value: bp });
+    if (bs) cells.push({ label: "Blood Sugar", value: bs });
+    if (temp) cells.push({ label: "Body Temperature", value: temp });
+    if (bg) cells.push({ label: "Blood Group", value: bg });
+    if (heightStr) cells.push({ label: "Height", value: heightStr });
+    if (weightStr) cells.push({ label: "Weight", value: weightStr });
+    if (bmiStr) cells.push({ label: "BMI", value: bmiStr });
+    customItems.forEach((c) => cells.push({ label: c.label, value: c.value }));
+
+    const rowsHtml: string[] = [];
+    const colCount = 4;
+    for (let i = 0; i < cells.length; i += colCount) {
+      const rowCells = cells.slice(i, i + colCount);
+      const tds = rowCells
+        .map(
+          (c) =>
+            `<td style="padding: 1.5mm 2mm; border: 1px solid #e2e8f0; background: #ffffff; vertical-align: top; width: 25%;">
+              <div style="font-size: 8.5px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px;">${escapeHtml(c.label)}</div>
+              <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 0.5mm;">${escapeHtml(c.value)}</div>
+            </td>`
+        )
+        .join("");
+
+      const emptyCount = colCount - rowCells.length;
+      let emptyTds = "";
+      for (let j = 0; j < emptyCount; j++) {
+        emptyTds += `<td style="border: 1px solid #e2e8f0; background: #f8fafc; width: 25%;"></td>`;
+      }
+
+      rowsHtml.push(`<tr>${tds}${emptyTds}</tr>`);
+    }
+
+    return `
+      <div class="rx-vitals-container" style="width: 100%; margin: 2mm 0 4mm; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden;">
+        <div style="background: #f1f5f9; padding: 1.5mm 3mm; border-bottom: 1px solid #cbd5e1; display: table; width: 100%;">
+          <span style="font-size: 9px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; display: table-cell; vertical-align: middle;">
+            Physical Vitals &amp; Metrics
+          </span>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10.5px;">
+          <tbody>
+            ${rowsHtml.join("\n")}
+          </tbody>
+        </table>
+      </div>
+    `.trim();
+  }
+
   public static resolveTemplate(templateHtml: string, context: any): string {
     if (!templateHtml) return "";
 
@@ -1164,6 +1262,25 @@ export class PrescriptionTemplatesService {
     const cleanPrescriptionId = String(rx.prescription_id || rx.id || "PRS-2026-00123").replace(/^#/, "");
     const cleanAppointmentId = String(rx.appointment_id || "APT-2026-0789").replace(/^#/, "");
 
+    const vitalsHtml = this.renderVitalsHtml(pat);
+
+    const bpVal = (pat.blood_pressure || pat.vitals?.blood_pressure || "").trim();
+    const bsVal = (pat.blood_sugar || pat.vitals?.blood_sugar || "").trim();
+    const tempVal = (pat.body_temperature || pat.vitals?.body_temperature || "").trim();
+    const bgVal = (pat.blood_group || pat.vitals?.blood_group || "").trim();
+    const heightVal = pat.height_cm ?? pat.vitals?.height_cm;
+    const weightVal = pat.weight_kg ?? pat.vitals?.weight_kg;
+    const heightStr = heightVal != null && String(heightVal).trim() !== "" ? `${heightVal} cm` : "";
+    const weightStr = weightVal != null && String(weightVal).trim() !== "" ? `${weightVal} kg` : "";
+    let bmiStr = "";
+    if (heightVal && weightVal) {
+      const h = typeof heightVal === "number" ? heightVal : parseFloat(String(heightVal));
+      const w = typeof weightVal === "number" ? weightVal : parseFloat(String(weightVal));
+      if (h > 0 && w > 0) {
+        bmiStr = (w / ((h / 100) * (h / 100))).toFixed(1);
+      }
+    }
+
     const values: Record<string, string> = {
       hospital_name: hosp.name || "Annaamalai Cancer Center",
       hospital_address: hosp.address || "No. 18, Kottivakkam Kuppam Rd, Thiruvalluvar Nagar, Thiruvanmiyur, Chennai, Tamil Nadu - 600 041.",
@@ -1193,6 +1310,17 @@ export class PrescriptionTemplatesService {
       patient_phone: pat.phone || "",
       patient_address: pat.address || "",
 
+      vitals_html: vitalsHtml,
+      vitals_table: vitalsHtml,
+      vitals_section: vitalsHtml,
+      blood_pressure: bpVal,
+      blood_sugar: bsVal,
+      body_temperature: tempVal,
+      blood_group: bgVal,
+      patient_height: heightStr,
+      patient_weight: weightStr,
+      patient_bmi: bmiStr,
+
       prescription_id: cleanPrescriptionId,
       prescription_date: rx.prescription_date ? formatDate(rx.prescription_date) : formatDate(new Date().toISOString()),
       appointment_id: cleanAppointmentId,
@@ -1220,6 +1348,12 @@ export class PrescriptionTemplatesService {
       medicines: medicinesTableHtml,
       LAB_TESTS: labTestsHtml,
       ADDITIONAL_NOTES: additionalNotesHtml,
+      BLOOD_PRESSURE: bpVal,
+      BLOOD_SUGAR: bsVal,
+      BODY_TEMPERATURE: tempVal,
+      BLOOD_GROUP: bgVal,
+      VITALS: vitalsHtml,
+      vitals: vitalsHtml,
       DOCTOR_NAME: cleanDocName || "S. Narendran",
       DOCTOR_REG_NO: doc.medical_registration_number || "106226",
       DOCTOR_QUALIFICATION: doc.qualification || "M.D (RT)",
@@ -1254,6 +1388,16 @@ export class PrescriptionTemplatesService {
       }
       return match;
     });
+
+    // Automatically inject Physical Vitals & Metrics after patient table if not explicitly placed
+    if (vitalsHtml && !rendered.includes("rx-vitals-container")) {
+      if (/<table[^>]*class=["'][^"']*rx-patient-table[^"']*["'][^>]*>[\s\S]*?<\/table>/i.test(rendered)) {
+        rendered = rendered.replace(
+          /(<table[^>]*class=["'][^"']*rx-patient-table[^"']*["'][^>]*>[\s\S]*?<\/table>)/i,
+          `$1\n${vitalsHtml}`
+        );
+      }
+    }
 
     // Strip any unresolved
     rendered = rendered.replace(/\{\{[a-zA-Z0-9_]+\}\}/g, "");

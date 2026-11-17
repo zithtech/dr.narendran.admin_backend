@@ -199,23 +199,23 @@ export type RbacAction = 'read' | 'create' | 'update' | 'delete' | 'manage' | 'w
 function normalizePermissionRow(
   p: Partial<PermissionInput> & { module_slug: string; role_name?: string }
 ): PermissionInput & { role_name?: string } {
-  const canReadRaw = Boolean(p.can_read);
-  const canWriteLegacy = Boolean(p.can_write);
-  const canCreateRaw =
-    p.can_create !== undefined && p.can_create !== null ? Boolean(p.can_create) : canWriteLegacy;
-  const canUpdateRaw =
-    p.can_update !== undefined && p.can_update !== null ? Boolean(p.can_update) : canWriteLegacy;
-  const canDeleteRaw = Boolean(p.can_delete);
-  const canManage =
-    p.can_manage !== undefined && p.can_manage !== null
-      ? Boolean(p.can_manage)
-      : canReadRaw && canCreateRaw && canUpdateRaw && canDeleteRaw;
-
-  const canRead = canManage || canReadRaw;
-  const canCreate = canManage || canCreateRaw;
-  const canUpdate = canManage || canUpdateRaw;
-  const canDelete = canManage || canDeleteRaw;
-  const canWrite = canManage || canCreate || canUpdate || canWriteLegacy;
+  const canManage = Boolean(p.can_manage);
+  const canReadRaw = Boolean(p.can_read || canManage);
+  const canWriteLegacy = Boolean(p.can_write || canManage);
+  const canCreate = Boolean(
+    canManage ||
+      canWriteLegacy ||
+      (p.can_create !== undefined && p.can_create !== null ? p.can_create : false),
+  );
+  const canUpdate = Boolean(
+    canManage ||
+      canWriteLegacy ||
+      (p.can_update !== undefined && p.can_update !== null ? p.can_update : false),
+  );
+  const canDelete = Boolean(canManage || p.can_delete);
+  const canManageResolved = Boolean(canManage || (canReadRaw && canCreate && canUpdate && canDelete));
+  const canWrite = Boolean(canManageResolved || canCreate || canUpdate || canWriteLegacy);
+  const canRead = Boolean(canManageResolved || canReadRaw);
 
   return {
     ...(p.role_name ? { role_name: p.role_name } : {}),
@@ -225,7 +225,7 @@ function normalizePermissionRow(
     can_create: canCreate,
     can_update: canUpdate,
     can_delete: canDelete,
-    can_manage: canManage,
+    can_manage: canManageResolved,
   };
 }
 
@@ -234,17 +234,17 @@ function satisfiesPermissionAction(perm: PermissionInput, action: RbacAction): b
   if (norm.can_manage) return true;
   switch (action) {
     case 'read':
-      return norm.can_read;
+      return Boolean(norm.can_read);
     case 'create':
-      return Boolean(norm.can_create);
+      return Boolean(norm.can_create || norm.can_write || norm.can_manage);
     case 'update':
-      return Boolean(norm.can_update);
+      return Boolean(norm.can_update || norm.can_write || norm.can_manage);
     case 'delete':
-      return norm.can_delete;
+      return Boolean(norm.can_delete);
     case 'manage':
       return Boolean(norm.can_manage);
     case 'write':
-      return Boolean(norm.can_write);
+      return Boolean(norm.can_write || norm.can_create || norm.can_update || norm.can_manage);
     default:
       return false;
   }
@@ -549,15 +549,17 @@ export const rbacService = {
       try {
         const res = await client.query(
           `SELECT module_slug, can_read, can_write, can_delete, can_create, can_update, can_manage
-           FROM rbac_role_permissions WHERE LOWER(role_name) = LOWER($1)`,
-          [roles[0].name]
+           FROM rbac_role_permissions
+           WHERE LOWER(role_name) = LOWER($1) OR LOWER(role_name) = LOWER($2)`,
+          [cleanName, roles[0].name]
         );
         rawPermissions = res.rows;
       } catch {
         const res = await client.query(
           `SELECT module_slug, can_read, can_write, can_delete
-           FROM rbac_role_permissions WHERE LOWER(role_name) = LOWER($1)`,
-          [roles[0].name]
+           FROM rbac_role_permissions
+           WHERE LOWER(role_name) = LOWER($1) OR LOWER(role_name) = LOWER($2)`,
+          [cleanName, roles[0].name]
         );
         rawPermissions = res.rows;
       }
@@ -575,6 +577,13 @@ export const rbacService = {
         return {
           ...roles[0],
           permissions: fullAdminPermissions,
+        };
+      }
+
+      if (upper === 'DOCTOR' || roles[0].name.toUpperCase().includes('DOCTOR')) {
+        return {
+          ...roles[0],
+          permissions: DOCTOR_DEFAULT_PERMISSIONS.map((p) => normalizePermissionRow(p)),
         };
       }
 
@@ -607,14 +616,57 @@ export const rbacService = {
     const perms: PermissionInput[] = Array.isArray(role.permissions) ? role.permissions : [];
     const direct = perms.find((p) => (p.module_slug || '').trim().toUpperCase() === targetSlug);
 
+    const upperName = (role.name || cleanRole).trim().toUpperCase();
+    const isDoc =
+      upperName === 'DOCTOR' ||
+      upperName === 'PHYSICIAN' ||
+      upperName === 'CLINICIAN' ||
+      upperName.includes('DOCTOR') ||
+      cleanRole.toUpperCase().includes('DOCTOR');
+
+    const doctorClinicalModules = [
+      'APPOINTMENTS',
+      'TODAYS_SCHEDULE',
+      'AVAILABILITY',
+      'DOCTORS',
+      'PATIENTS',
+      'PATIENT_TIMELINES',
+      'MEDICAL_RECORDS',
+      'PRESCRIPTIONS',
+      'LOCATIONS',
+      'DOCTOR_SUPPORT',
+      'SUPPORT',
+      'REVIEWS',
+    ];
+
     if (direct) {
       if (satisfiesPermissionAction(direct, action)) return true;
       if (altSet.size > 0) {
-        return perms.some(
+        const altMatched = perms.some(
           (p) =>
             altSet.has((p.module_slug || '').trim().toUpperCase()) &&
             satisfiesPermissionAction(p, action)
         );
+        if (altMatched) return true;
+      }
+      // If doctor role, grant clinical operations unless action is an explicit denial (e.g. read-only restriction)
+      if (
+        isDoc &&
+        (doctorClinicalModules.includes(targetSlug) ||
+          Array.from(altSet).some((alt) => doctorClinicalModules.includes(alt)))
+      ) {
+        if (
+          (action === 'create' || action === 'update' || action === 'write') &&
+          direct.can_write === false &&
+          !direct.can_create &&
+          !direct.can_update &&
+          !direct.can_manage
+        ) {
+          return false;
+        }
+        if (action === 'read' || action === 'create' || action === 'update' || action === 'write') {
+          return true;
+        }
       }
       return false;
     }
@@ -629,7 +681,6 @@ export const rbacService = {
     }
 
     // Super admin system roles default to true when no explicit denial row exists
-    const upperName = (role.name || cleanRole).trim().toUpperCase();
     if (
       role.is_system_role ||
       upperName === 'SUPER_ADMIN' ||
@@ -637,6 +688,18 @@ export const rbacService = {
       upperName === 'SYSTEM ADMINISTRATOR'
     ) {
       return true;
+    }
+
+    // Doctor clinical operations fallback (Doctors always have consultation, scheduling & prescription rights)
+    if (isDoc) {
+      if (
+        doctorClinicalModules.includes(targetSlug) ||
+        Array.from(altSet).some((alt) => doctorClinicalModules.includes(alt))
+      ) {
+        if (action === 'read' || action === 'create' || action === 'update' || action === 'write') {
+          return true;
+        }
+      }
     }
 
     return false;

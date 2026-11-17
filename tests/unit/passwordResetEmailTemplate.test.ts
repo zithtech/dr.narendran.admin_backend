@@ -33,8 +33,26 @@ describe('Password Reset Professional Email Templates', () => {
     expect(html).toContain('Did not request this change?');
 
     // Footer
-    expect(html).toContain('Advanced Oncology, Cardiology & Multi-Specialty Clinical Platform');
+    expect(html).toContain('Clinical Management & Practitioner Portal');
     expect(html).toContain(String(new Date().getFullYear()));
+  });
+
+  it('renders custom hospital logo and name when provided', () => {
+    const html = generatePasswordResetEmailHtml({
+      name: 'Dr. John Doe',
+      resetUrl: 'https://hms.example.com/reset-password?token=custom-token-999',
+      expiresMinutes: 15,
+      hospitalName: 'Apollo Speciality Hospitals',
+      hospitalSubtext: 'Center of Excellence in Clinical Healthcare',
+      logoUrl: 'https://hms.example.com/assets/apollo-logo.png',
+    });
+
+    expect(html).toContain('Apollo Speciality Hospitals');
+    expect(html).toContain('Center of Excellence in Clinical Healthcare');
+    expect(html).toContain('https://hms.example.com/assets/apollo-logo.png');
+    expect(html).toContain('alt="Apollo Speciality Hospitals Logo"');
+    expect(html).toContain('Hello <strong>Dr. John Doe</strong>');
+    expect(html).toContain('15 minutes');
   });
 
   it('generates clean plain-text fallback', () => {

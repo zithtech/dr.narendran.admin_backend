@@ -9,6 +9,7 @@ import {
   generatePasswordResetEmailHtml,
   generatePasswordResetEmailText,
 } from '@/templates/passwordResetEmail.js';
+import { settingsService } from '@/modules/settings/settings.service.js';
 
 export function validatePasswordStrength(password: string): { isValid: boolean; errors: string[] } {
   const errors: string[] = [];
@@ -376,11 +377,13 @@ export class TenantAuthService {
       // 1. admin_users
       try {
         const { rows } = await client.query(
-          `SELECT id, username FROM admin_users WHERE lower(username) = $1`,
+          `SELECT id, username, name, first_name, last_name, logo_url FROM admin_users WHERE lower(username) = $1`,
           [cleanIdentifier],
         );
         if (rows.length > 0) {
-          matchedUser = { id: rows[0].id, email: rows[0].username, table: 'admin_users' };
+          const u = rows[0];
+          const fullName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+          matchedUser = { id: u.id, email: u.username, name: fullName, table: 'admin_users' };
         }
       } catch (_e) {}
 
@@ -388,37 +391,72 @@ export class TenantAuthService {
       if (!matchedUser) {
         try {
           const { rows } = await client.query(
-            `SELECT id, username FROM user_accounts WHERE lower(username) = $1`,
+            `SELECT id, username, first_name, last_name, logo_url FROM user_accounts WHERE lower(username) = $1`,
             [cleanIdentifier],
           );
           if (rows.length > 0) {
-            matchedUser = { id: rows[0].id, email: rows[0].username, table: 'user_accounts' };
+            const u = rows[0];
+            const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+            matchedUser = { id: u.id, email: u.username, name: fullName, table: 'user_accounts' };
           }
         } catch (_e) {}
       }
 
-      // 3. master_admin_users
+      // 3. doctors (if doctor account exists by email)
       if (!matchedUser) {
         try {
           const { rows } = await client.query(
-            `SELECT id, email, name FROM master_admin_users WHERE lower(email) = $1`,
+            `SELECT id, email, name, first_name, last_name FROM doctors WHERE lower(email) = $1`,
             [cleanIdentifier],
           );
           if (rows.length > 0) {
-            matchedUser = { id: rows[0].id, email: rows[0].email, name: rows[0].name, table: 'master_admin_users' };
+            const u = rows[0];
+            const rawName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || '';
+            const docName = rawName ? (rawName.toLowerCase().startsWith('dr') ? rawName : `Dr. ${rawName}`) : undefined;
+            matchedUser = { id: u.id, email: u.email, name: docName, table: 'doctors' };
           }
         } catch (_e) {}
       }
 
-      // 4. users
+      // 4. staff (if staff account exists by email)
       if (!matchedUser) {
         try {
           const { rows } = await client.query(
-            `SELECT id, email FROM users WHERE lower(email) = $1`,
+            `SELECT id, email, name, first_name, last_name FROM staff WHERE lower(email) = $1`,
             [cleanIdentifier],
           );
           if (rows.length > 0) {
-            matchedUser = { id: rows[0].id, email: rows[0].email, table: 'users' };
+            const u = rows[0];
+            const fullName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+            matchedUser = { id: u.id, email: u.email, name: fullName, table: 'staff' };
+          }
+        } catch (_e) {}
+      }
+
+      // 5. master_admin_users
+      if (!matchedUser) {
+        try {
+          const { rows } = await client.query(
+            `SELECT id, email, name, first_name, last_name FROM master_admin_users WHERE lower(email) = $1`,
+            [cleanIdentifier],
+          );
+          if (rows.length > 0) {
+            const u = rows[0];
+            const fullName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+            matchedUser = { id: u.id, email: u.email, name: fullName, table: 'master_admin_users' };
+          }
+        } catch (_e) {}
+      }
+
+      // 6. users
+      if (!matchedUser) {
+        try {
+          const { rows } = await client.query(
+            `SELECT id, email, name FROM users WHERE lower(email) = $1`,
+            [cleanIdentifier],
+          );
+          if (rows.length > 0) {
+            matchedUser = { id: rows[0].id, email: rows[0].email, name: rows[0].name, table: 'users' };
           }
         } catch (_e) {}
       }
@@ -445,7 +483,25 @@ export class TenantAuthService {
 
         // Build reset URL
         const appOrigin = origin || env.CLIENT_APP_URL || 'http://localhost:5173';
-        const resetUrl = `${appOrigin.replace(/\/+$/, '')}/reset-password?token=${token}`;
+        const cleanOrigin = appOrigin.replace(/\/+$/, '');
+        const resetUrl = `${cleanOrigin}/reset-password?token=${token}`;
+
+        // Retrieve hospital branding settings (Hospital Name and Logo)
+        let hospitalName = 'Dr. Narendran HMS';
+        const hospitalSubtext = 'Clinical Management & Practitioner Portal';
+        let logoUrl = `${cleanOrigin}/assets/brand-logo.png`;
+
+        try {
+          const branding = await settingsService.getSettings(matchedUser.id);
+          if (branding?.fullName && branding.fullName !== 'System Administrator') {
+            hospitalName = branding.fullName;
+          } else if (branding?.firstName && branding.firstName !== 'System') {
+            hospitalName = [branding.firstName, branding.lastName].filter(Boolean).join(' ');
+          }
+          if (branding?.logoUrl && branding.logoUrl.trim()) {
+            logoUrl = branding.logoUrl.trim();
+          }
+        } catch (_err) {}
 
         // Send email via nodemailer
         try {
@@ -464,17 +520,22 @@ export class TenantAuthService {
             name: matchedUser.name || matchedUser.email,
             resetUrl,
             expiresMinutes: 30,
+            hospitalName,
+            hospitalSubtext,
+            logoUrl,
           });
           const emailText = generatePasswordResetEmailText({
             name: matchedUser.name || matchedUser.email,
             resetUrl,
             expiresMinutes: 30,
+            hospitalName,
+            hospitalSubtext,
           });
 
           await transporter.sendMail({
-            from: `"Dr. Narendran HMS" <${env.SYSTEM_EMAIL}>`,
+            from: `"${hospitalName}" <${env.SYSTEM_EMAIL}>`,
             to: email,
-            subject: 'Password Reset Request - Dr. Narendran HMS',
+            subject: `Password Reset Request - ${hospitalName}`,
             text: emailText,
             html: emailHtml,
           });

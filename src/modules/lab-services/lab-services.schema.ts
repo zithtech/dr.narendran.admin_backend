@@ -26,15 +26,25 @@ export const labServicePriceSchema = z.coerce
 export const createLabServiceSchema = z.object({
   name: labServiceNameSchema,
   status: labServiceStatusSchema.default('ACTIVE'),
+  service_code: z.string().trim().max(100).nullable().optional(),
+  category: z.string().trim().max(100).nullable().optional(),
+  service_category: z.string().trim().max(100).nullable().optional(),
+  sample_type: z.string().trim().max(100).nullable().optional(),
   description: labServiceDescriptionSchema,
   price: labServicePriceSchema,
+  service_price: labServicePriceSchema,
 });
 
 export const updateLabServiceSchema = z.object({
   name: labServiceNameSchema,
   status: labServiceStatusSchema,
+  service_code: z.string().trim().max(100).nullable().optional(),
+  category: z.string().trim().max(100).nullable().optional(),
+  service_category: z.string().trim().max(100).nullable().optional(),
+  sample_type: z.string().trim().max(100).nullable().optional(),
   description: labServiceDescriptionSchema,
   price: labServicePriceSchema,
+  service_price: labServicePriceSchema,
 });
 
 export const labServiceParamIdSchema = z.object({

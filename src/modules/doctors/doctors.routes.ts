@@ -1,11 +1,20 @@
 import { Router } from 'express';
+import multer from 'multer';
 
 import { requireAuth, requireRole } from '@/http/middleware/authenticate.js';
 import { requirePermission } from '@/http/middleware/rbac.middleware.js';
+import { uploadImage } from '@/modules/upload/upload.controller.js';
 
 import { DoctorsController } from './doctors.controller.js';
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
 export const doctorsRouter = Router();
+
+doctorsRouter.post('/upload-image', requireAuth, upload.single('file'), uploadImage);
 
 doctorsRouter.get('/me', requireAuth, DoctorsController.getMe);
 doctorsRouter.put('/me', requireAuth, DoctorsController.updateMe);

@@ -28,12 +28,14 @@ import { prescriptionTemplatesRouter } from '@/modules/prescription_templates/pr
 import { prescriptionsRouter } from '@/modules/prescriptions/prescriptions.routes.js';
 import { profileRouter } from '@/modules/profile/profile.routes.js';
 import { proxyRouter } from '@/modules/proxy/proxy.routes.js';
+import { proxyImage } from '@/modules/proxy/proxy.controller.js';
 import { rbacRouter } from '@/modules/rbac/rbac.routes.js';
 import { reviewsRouter } from '@/modules/reviews/reviews.routes.js';
 import { settingsRouter } from '@/modules/settings/settings.routes.js';
 import { clientPortalsRouter } from '@/modules/client_portals/client_portals.routes.js';
 import { labPortalRouter } from '@/modules/lab_portal/lab_portal.routes.js';
 import { staffRouter } from '@/modules/staff/staff.routes.js';
+import { uploadRouter } from '@/modules/upload/upload.routes.js';
 import supportRouter, { adminSupportRouter } from '@/modules/support/support.routes.js';
 import { tenantRouter } from '@/modules/tenant/tenant.routes.js';
 import { userAccountsRouter } from '@/modules/user_accounts/user_accounts.routes.js';
@@ -89,5 +91,18 @@ apiRouter.use('/admin/patient-timelines', patientTimelinesRouter);
 apiRouter.use('/patient-timelines', patientTimelinesRouter);
 apiRouter.use('/admin/medical-records', medicalRecordsRouter);
 apiRouter.use('/medical-records', medicalRecordsRouter);
+apiRouter.use('/upload', uploadRouter);
+
+// Fallback storage routes ensuring legacy storage URLs stream cleanly
+apiRouter.use('/medical-records/storage', (req, res) => {
+  const rawKey = (req.url || '').replace(/^\//, '').split('?')[0] || '';
+  req.query['key'] = decodeURIComponent(rawKey);
+  return proxyImage(req, res);
+});
+apiRouter.use('/staff/storage', (req, res) => {
+  const rawKey = (req.url || '').replace(/^\//, '').split('?')[0] || '';
+  req.query['key'] = decodeURIComponent(rawKey);
+  return proxyImage(req, res);
+});
 
 

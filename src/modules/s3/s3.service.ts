@@ -83,22 +83,30 @@ export class S3Service {
 
   getLocalFilePath(key: string): string {
     const cleanKey = key.replace(/^\/+/, '');
-    const candidates = [
-      path.join(this.localUploadsDir, cleanKey),
+    const directPath = path.join(this.localUploadsDir, cleanKey);
+    if (fs.existsSync(directPath)) return directPath;
+
+    // If key starts with uploads/, check without uploads/ prefix
+    if (cleanKey.startsWith('uploads/')) {
+      const strippedPath = path.join(this.localUploadsDir, cleanKey.replace(/^uploads\//, ''));
+      if (fs.existsSync(strippedPath)) return strippedPath;
+    }
+
+    // Check with an extra uploads/ folder
+    const nestedPath = path.join(this.localUploadsDir, 'uploads', cleanKey);
+    if (fs.existsSync(nestedPath)) return nestedPath;
+
+    // Check relative to current working directory paths
+    const cwdCandidates = [
       path.resolve(process.cwd(), 'uploads', cleanKey),
       path.resolve(process.cwd(), 'dr.narendran.admin_backend', 'uploads', cleanKey),
       path.resolve(process.cwd(), 'dr.narendran.adminbackend', 'uploads', cleanKey),
-      path.resolve(__dirname, '../../../../uploads', cleanKey),
-      path.resolve(__dirname, '../../../uploads', cleanKey),
     ];
-
-    for (const c of candidates) {
-      if (fs.existsSync(c)) {
-        return c;
-      }
+    for (const c of cwdCandidates) {
+      if (fs.existsSync(c)) return c;
     }
 
-    return path.join(this.localUploadsDir, cleanKey);
+    return directPath;
   }
 
   hasLocalFile(key: string): boolean {
@@ -145,7 +153,7 @@ export class S3Service {
     } catch (cloudErr: unknown) {
       const msg = cloudErr instanceof Error ? cloudErr.message : String(cloudErr);
       console.warn(`[S3Service] Cloud storage upload skipped/failed (${msg}). Document safely stored in local uploads.`);
-      return { fileUrl: `/api/staff/storage/${encodeURIComponent(key)}`, key };
+      return { fileUrl: `/api/proxy/image?key=${encodeURIComponent(key)}`, key };
     }
   }
 
@@ -171,7 +179,7 @@ export class S3Service {
     } catch {
       return {
         uploadUrl: '',
-        fileUrl: `/api/staff/storage/${encodeURIComponent(key)}`,
+        fileUrl: `/api/proxy/image?key=${encodeURIComponent(key)}`,
         key,
       };
     }
@@ -182,7 +190,7 @@ export class S3Service {
    */
   async getReadUrl(key: string, expiresIn = 3600): Promise<string> {
     if (this.hasLocalFile(key)) {
-      return `/api/medical-records/storage/${encodeURIComponent(key)}`;
+      return `/api/proxy/image?key=${encodeURIComponent(key)}`;
     }
 
     if (this.isR2 && env.R2_PUBLIC_URL) {
@@ -196,7 +204,7 @@ export class S3Service {
       });
       return await getSignedUrl(this.s3, command, { expiresIn });
     } catch {
-      return `/api/staff/storage/${encodeURIComponent(key)}`;
+      return `/api/proxy/image?key=${encodeURIComponent(key)}`;
     }
   }
 

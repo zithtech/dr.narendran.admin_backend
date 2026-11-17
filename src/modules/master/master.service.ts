@@ -28,6 +28,7 @@ export async function ensureMasterTables(client?: any): Promise<void> {
       CREATE TABLE IF NOT EXISTS tenant_admin_master_login (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id uuid REFERENCES tenants(id) ON DELETE CASCADE,
+        name varchar(255) DEFAULT 'Admin',
         username varchar(255) NOT NULL UNIQUE,
         password_hash text NOT NULL,
         phone varchar(50),
@@ -36,6 +37,8 @@ export async function ensureMasterTables(client?: any): Promise<void> {
         created_at timestamp with time zone NOT NULL DEFAULT current_timestamp,
         updated_at timestamp with time zone NOT NULL DEFAULT current_timestamp
       );
+
+      ALTER TABLE tenant_admin_master_login ADD COLUMN IF NOT EXISTS name varchar(255) DEFAULT 'Admin';
 
       CREATE TABLE IF NOT EXISTS master_admin_users (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

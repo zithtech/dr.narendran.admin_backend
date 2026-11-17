@@ -41,6 +41,7 @@ async function ensureMasterTables(client: any): Promise<void> {
       CREATE TABLE IF NOT EXISTS tenant_admin_master_login (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id uuid REFERENCES tenants(id) ON DELETE CASCADE,
+        name varchar(255) DEFAULT 'Admin',
         username varchar(255) NOT NULL UNIQUE,
         password_hash text NOT NULL,
         phone varchar(50),
@@ -49,6 +50,8 @@ async function ensureMasterTables(client: any): Promise<void> {
         created_at timestamp with time zone NOT NULL DEFAULT current_timestamp,
         updated_at timestamp with time zone NOT NULL DEFAULT current_timestamp
       );
+
+      ALTER TABLE tenant_admin_master_login ADD COLUMN IF NOT EXISTS name varchar(255) DEFAULT 'Admin';
 
       CREATE TABLE IF NOT EXISTS master_admin_users (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -424,7 +427,7 @@ export const MasterController = {
       status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
     });
     try {
-      const id = parseInt(req.params['id'] as string, 10);
+      const id = req.params['id'] as string;
       const raw = schema.parse(req.body);
       // Strip undefined fields to satisfy exactOptionalPropertyTypes
       const updates: {
@@ -441,7 +444,8 @@ export const MasterController = {
       if (!data)
         return void res.status(404).json({ error: 'Admin user not found' });
       res.json(data);
-    } catch {
+    } catch (err: any) {
+      console.error('updateMasterAdminUser error:', err);
       res.status(500).json({ error: 'Failed to update admin user' });
     }
   },
@@ -449,23 +453,25 @@ export const MasterController = {
   async updateMasterAdminUserPassword(req: Request, res: Response) {
     const schema = z.object({ password: z.string().min(6) });
     try {
-      const id = parseInt(req.params['id'] as string, 10);
+      const id = req.params['id'] as string;
       const { password } = schema.parse(req.body);
       await masterService.updateMasterAdminUserPassword(id, password);
       res.json({ message: 'Password updated' });
-    } catch {
+    } catch (err: any) {
+      console.error('updateMasterAdminUserPassword error:', err);
       res.status(500).json({ error: 'Failed to update password' });
     }
   },
 
   async deleteMasterAdminUser(req: Request, res: Response) {
     try {
-      const id = parseInt(req.params['id'] as string, 10);
+      const id = req.params['id'] as string;
       const deleted = await masterService.deleteMasterAdminUser(id);
       if (!deleted)
         return void res.status(404).json({ error: 'Admin user not found' });
       res.json({ message: 'Admin user deleted' });
-    } catch {
+    } catch (err: any) {
+      console.error('deleteMasterAdminUser error:', err);
       res.status(500).json({ error: 'Failed to delete admin user' });
     }
   },

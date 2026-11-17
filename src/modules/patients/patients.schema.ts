@@ -118,6 +118,10 @@ export const patientSchema = z.object({
     z.null(),
   ]).optional().nullable(),
   blood_group: z.union([z.string().trim(), z.literal(''), z.null()]).optional().nullable(),
+  blood_pressure: z.union([z.string().trim().max(50), z.literal(''), z.null()]).optional().nullable(),
+  blood_sugar: z.union([z.string().trim().max(50), z.literal(''), z.null()]).optional().nullable(),
+  body_temperature: z.union([z.string().trim().max(50), z.literal(''), z.null()]).optional().nullable(),
+  custom_vitals: z.any().optional().nullable(),
   marital_status: z.union([z.string().trim(), z.literal(''), z.null()]).optional().nullable(),
   emergency_contacts: z.any().optional().nullable(),
   profile_image_url: z

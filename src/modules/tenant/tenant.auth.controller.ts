@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { tenantAuthService } from './tenant.auth.service.js';
 import { signAccessToken } from '@/modules/auth/tokens.js';
+import { settingsService } from '@/modules/settings/settings.service.js';
 import type { UserRole } from '@/modules/users/users.types.js';
 
 const loginSchema = z.preprocess(
@@ -51,7 +52,23 @@ export const TenantAuthController = {
         tokenVersion: 0,
       });
 
-      res.json({ token, role: user.role, id: user.id, username: user.username });
+      let settings: any = null;
+      try {
+        settings = await settingsService.getSettings(String(user.id));
+      } catch (_e) {
+        // silent
+      }
+
+      res.json({
+        token,
+        role: user.role,
+        id: user.id,
+        username: user.username,
+        firstName: settings?.firstName || '',
+        lastName: settings?.lastName || '',
+        fullName: settings?.fullName || '',
+        logoUrl: settings?.logoUrl || '',
+      });
     } catch (err: any) {
       if (
         err.message === 'Tenant not found' ||
@@ -98,7 +115,23 @@ export const TenantAuthController = {
         tokenVersion: 0,
       });
 
-      res.json({ token, role: user.role, id: user.id, username: user.username });
+      let settings: any = null;
+      try {
+        settings = await settingsService.getSettings(String(user.id));
+      } catch (_e) {
+        // silent
+      }
+
+      res.json({
+        token,
+        role: user.role,
+        id: user.id,
+        username: user.username,
+        firstName: settings?.firstName || '',
+        lastName: settings?.lastName || '',
+        fullName: settings?.fullName || '',
+        logoUrl: settings?.logoUrl || '',
+      });
     } catch (err: any) {
       if (
         err.message === 'Invalid credentials' ||

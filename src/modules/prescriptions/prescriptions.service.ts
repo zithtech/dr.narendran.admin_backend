@@ -95,6 +95,22 @@ export interface FormattedPrescription {
   follow_up_days?: number | null | undefined;
   follow_up_date?: string | null | undefined;
   follow_up_status?: string | null | undefined;
+  patient_blood_pressure?: string | null | undefined;
+  patient_blood_sugar?: string | null | undefined;
+  patient_body_temperature?: string | null | undefined;
+  patient_height_cm?: number | null | undefined;
+  patient_weight_kg?: number | null | undefined;
+  patient_blood_group?: string | null | undefined;
+  patient_custom_vitals?: any;
+  vitals?: {
+    blood_pressure?: string | null | undefined;
+    blood_sugar?: string | null | undefined;
+    body_temperature?: string | null | undefined;
+    height_cm?: number | null | undefined;
+    weight_kg?: number | null | undefined;
+    blood_group?: string | null | undefined;
+    custom_vitals?: any;
+  } | undefined;
 }
 
 export interface CreatePrescriptionMedicineInput {
@@ -117,6 +133,23 @@ export interface CreatePrescriptionLabTestInput {
   lab_id?: string | undefined;
 }
 
+export interface PrescriptionVitalsInput {
+  blood_pressure?: string | null | undefined;
+  blood_sugar?: string | null | undefined;
+  body_temperature?: string | null | undefined;
+  height_cm?: number | string | null | undefined;
+  weight_kg?: number | string | null | undefined;
+  blood_group?: string | null | undefined;
+  custom_vitals?: any;
+  bloodPressure?: string | null | undefined;
+  bloodSugar?: string | null | undefined;
+  bodyTemperature?: string | null | undefined;
+  heightCm?: number | string | null | undefined;
+  weightKg?: number | string | null | undefined;
+  bloodGroup?: string | null | undefined;
+  customVitals?: any;
+}
+
 export interface CreatePrescriptionInput {
   patientId?: string | undefined;
   doctorId?: string | undefined;
@@ -131,6 +164,7 @@ export interface CreatePrescriptionInput {
   followUpDate?: string | undefined;
   medicines?: CreatePrescriptionMedicineInput[] | undefined;
   labTests?: CreatePrescriptionLabTestInput[] | undefined;
+  vitals?: PrescriptionVitalsInput | undefined;
 }
 
 export interface UpdatePrescriptionInput {
@@ -141,6 +175,7 @@ export interface UpdatePrescriptionInput {
   followUpDate?: string | undefined;
   medicines?: CreatePrescriptionMedicineInput[] | undefined;
   labTests?: CreatePrescriptionLabTestInput[] | undefined;
+  vitals?: PrescriptionVitalsInput | undefined;
 }
 
 async function signS3DocumentUrl(rawUrl?: string | null): Promise<string | undefined> {
@@ -262,6 +297,13 @@ export class PrescriptionsService {
           COALESCE(NULLIF(pat.phone, ''), NULLIF(pat_appt.phone, ''), appt.patient_phone) as patient_phone,
           COALESCE(pat.gender, pat_appt.gender) as patient_gender,
           COALESCE(pat.date_of_birth, pat_appt.date_of_birth) as patient_dob,
+          COALESCE(pat.blood_group, pat_appt.blood_group) as patient_blood_group,
+          COALESCE(pat.height_cm, pat_appt.height_cm) as patient_height_cm,
+          COALESCE(pat.weight_kg, pat_appt.weight_kg) as patient_weight_kg,
+          COALESCE(pat.blood_pressure, pat_appt.blood_pressure) as patient_blood_pressure,
+          COALESCE(pat.blood_sugar, pat_appt.blood_sugar) as patient_blood_sugar,
+          COALESCE(pat.body_temperature, pat_appt.body_temperature) as patient_body_temperature,
+          COALESCE(pat.custom_vitals, pat_appt.custom_vitals) as patient_custom_vitals,
           d.id as doctor_id,
           d.name as doctor_name,
           COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty
@@ -474,6 +516,13 @@ export class PrescriptionsService {
           COALESCE(NULLIF(pat.phone, ''), NULLIF(pat_appt.phone, ''), appt.patient_phone) as patient_phone,
           COALESCE(pat.gender, pat_appt.gender) as patient_gender,
           COALESCE(pat.date_of_birth, pat_appt.date_of_birth) as patient_dob,
+          COALESCE(pat.blood_group, pat_appt.blood_group) as patient_blood_group,
+          COALESCE(pat.height_cm, pat_appt.height_cm) as patient_height_cm,
+          COALESCE(pat.weight_kg, pat_appt.weight_kg) as patient_weight_kg,
+          COALESCE(pat.blood_pressure, pat_appt.blood_pressure) as patient_blood_pressure,
+          COALESCE(pat.blood_sugar, pat_appt.blood_sugar) as patient_blood_sugar,
+          COALESCE(pat.body_temperature, pat_appt.body_temperature) as patient_body_temperature,
+          COALESCE(pat.custom_vitals, pat_appt.custom_vitals) as patient_custom_vitals,
           d.id as doctor_id,
           d.name as doctor_name,
           COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty
@@ -639,6 +688,22 @@ export class PrescriptionsService {
         follow_up_days: r.follow_up_days != null ? Number(r.follow_up_days) : null,
         follow_up_date: r.follow_up_date ? (typeof r.follow_up_date === 'string' ? r.follow_up_date.split('T')[0] : new Date(r.follow_up_date).toISOString().split('T')[0]) : null,
         follow_up_status: r.follow_up_status || null,
+        patient_blood_pressure: r.patient_blood_pressure || undefined,
+        patient_blood_sugar: r.patient_blood_sugar || undefined,
+        patient_body_temperature: r.patient_body_temperature || undefined,
+        patient_height_cm: r.patient_height_cm != null ? Number(r.patient_height_cm) : undefined,
+        patient_weight_kg: r.patient_weight_kg != null ? Number(r.patient_weight_kg) : undefined,
+        patient_blood_group: r.patient_blood_group || undefined,
+        patient_custom_vitals: r.patient_custom_vitals || undefined,
+        vitals: {
+          blood_pressure: r.patient_blood_pressure || undefined,
+          blood_sugar: r.patient_blood_sugar || undefined,
+          body_temperature: r.patient_body_temperature || undefined,
+          height_cm: r.patient_height_cm != null ? Number(r.patient_height_cm) : undefined,
+          weight_kg: r.patient_weight_kg != null ? Number(r.patient_weight_kg) : undefined,
+          blood_group: r.patient_blood_group || undefined,
+          custom_vitals: r.patient_custom_vitals || undefined,
+        },
       };
     } finally {
       client.release();
@@ -678,14 +743,18 @@ export class PrescriptionsService {
 
       // Check patient exists
       const patRes = await client.query(
-        `SELECT id, name, phone, gender, date_of_birth, user_account_id FROM patients WHERE id = $1 LIMIT 1`,
+        `SELECT id, name, phone, gender, date_of_birth, user_account_id,
+                blood_pressure, blood_sugar, body_temperature, height_cm, weight_kg, blood_group, custom_vitals
+         FROM patients WHERE id = $1 LIMIT 1`,
         [resolvedPatientId]
       );
       let patientMeta = patRes.rows[0];
       if (!patientMeta) {
         // Fallback: see if resolvedPatientId is a user_account_id or user_id
         const patByUa = await client.query(
-          `SELECT id, name, phone, gender, date_of_birth, user_account_id FROM patients WHERE user_account_id = $1 OR user_id = $1 LIMIT 1`,
+          `SELECT id, name, phone, gender, date_of_birth, user_account_id,
+                  blood_pressure, blood_sugar, body_temperature, height_cm, weight_kg, blood_group, custom_vitals
+           FROM patients WHERE user_account_id = $1 OR user_id = $1 LIMIT 1`,
           [resolvedPatientId]
         );
         if (patByUa.rows.length > 0) {
@@ -707,6 +776,46 @@ export class PrescriptionsService {
         }
       }
       patientMeta = patientMeta || {};
+
+      // If vitals were supplied during prescription creation, update the patient's record
+      if (input.vitals && resolvedPatientId) {
+        try {
+          const v = input.vitals;
+          const bp = v.blood_pressure ?? v.bloodPressure ?? null;
+          const bs = v.blood_sugar ?? v.bloodSugar ?? null;
+          const bt = v.body_temperature ?? v.bodyTemperature ?? null;
+          const hVal = v.height_cm != null ? Number(v.height_cm) : (v.heightCm != null ? Number(v.heightCm) : null);
+          const wVal = v.weight_kg != null ? Number(v.weight_kg) : (v.weightKg != null ? Number(v.weightKg) : null);
+          const bg = v.blood_group ?? v.bloodGroup ?? null;
+          const cv = v.custom_vitals ? JSON.stringify(v.custom_vitals) : (v.customVitals ? JSON.stringify(v.customVitals) : null);
+
+          await client.query(`
+            UPDATE patients SET
+              blood_pressure = COALESCE($1, blood_pressure),
+              blood_sugar = COALESCE($2, blood_sugar),
+              body_temperature = COALESCE($3, body_temperature),
+              height_cm = COALESCE($4, height_cm),
+              weight_kg = COALESCE($5, weight_kg),
+              blood_group = COALESCE($6, blood_group),
+              custom_vitals = COALESCE($7::jsonb, custom_vitals),
+              updated_at = NOW()
+            WHERE id = $8
+          `, [bp, bs, bt, hVal, wVal, bg, cv, resolvedPatientId]);
+
+          patientMeta = {
+            ...patientMeta,
+            ...(bp ? { blood_pressure: bp } : {}),
+            ...(bs ? { blood_sugar: bs } : {}),
+            ...(bt ? { body_temperature: bt } : {}),
+            ...(hVal != null ? { height_cm: hVal } : {}),
+            ...(wVal != null ? { weight_kg: wVal } : {}),
+            ...(bg ? { blood_group: bg } : {}),
+            ...(v.custom_vitals || v.customVitals ? { custom_vitals: v.custom_vitals || v.customVitals } : {}),
+          };
+        } catch (vitErr) {
+          logger.warn({ err: vitErr }, 'Warning updating patient vitals on prescription create');
+        }
+      }
 
       // 2. Resolve Doctor ID
       let resolvedDoctorId: string | null | undefined = input.doctorId;
@@ -799,6 +908,13 @@ export class PrescriptionsService {
               phone: patientMeta.phone || '',
               gender: patientMeta.gender || '',
               date_of_birth: patientMeta.date_of_birth ? new Date(patientMeta.date_of_birth).toLocaleDateString('en-GB') : '',
+              blood_pressure: patientMeta.blood_pressure || '',
+              blood_sugar: patientMeta.blood_sugar || '',
+              body_temperature: patientMeta.body_temperature || '',
+              blood_group: patientMeta.blood_group || '',
+              height_cm: patientMeta.height_cm || null,
+              weight_kg: patientMeta.weight_kg || null,
+              custom_vitals: patientMeta.custom_vitals || [],
             },
             prescription: {
               prescription_date: new Date().toISOString(),
@@ -1129,6 +1245,13 @@ export class PrescriptionsService {
           phone: rx.patient_phone || '',
           gender: rx.patient_gender || '',
           date_of_birth: rx.patient_dob ? new Date(rx.patient_dob).toLocaleDateString('en-GB') : '',
+          blood_pressure: rx.patient_blood_pressure || rx.vitals?.blood_pressure || '',
+          blood_sugar: rx.patient_blood_sugar || rx.vitals?.blood_sugar || '',
+          body_temperature: rx.patient_body_temperature || rx.vitals?.body_temperature || '',
+          blood_group: rx.patient_blood_group || rx.vitals?.blood_group || '',
+          height_cm: rx.patient_height_cm ?? rx.vitals?.height_cm ?? null,
+          weight_kg: rx.patient_weight_kg ?? rx.vitals?.weight_kg ?? null,
+          custom_vitals: rx.patient_custom_vitals ?? rx.vitals?.custom_vitals ?? [],
         },
         prescription: {
           prescription_id: rx.id ? String(rx.id).slice(0, 8).toUpperCase() : '',

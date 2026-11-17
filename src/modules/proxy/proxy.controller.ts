@@ -44,32 +44,70 @@ export async function proxyImage(req: Request, res: Response): Promise<void> {
     rawUrl = `https://lh3.googleusercontent.com/d/${gDriveMatch[1]}`;
   }
 
+  // Helper to stream S3 / local key directly
+  const tryStreamS3Key = async (rawKey: string): Promise<boolean> => {
+    try {
+      const cleanKey = decodeURIComponent(rawKey).replace(/^\/+/, '');
+      const { stream, contentType } = await s3Service.getObjectStream(cleanKey);
+      res.setHeader('Content-Type', contentType || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+
+      if (typeof (stream as any).pipe === 'function') {
+        (stream as any).pipe(res);
+      } else if (typeof (stream as any).transformToByteArray === 'function') {
+        const bytes = await (stream as any).transformToByteArray();
+        res.send(Buffer.from(bytes));
+      } else {
+        for await (const chunk of stream as any) {
+          res.write(chunk);
+        }
+        res.end();
+      }
+      return true;
+    } catch (err) {
+      console.warn('[proxyImage] getObjectStream failed for S3 key:', rawKey, err);
+      try {
+        const cleanKey = decodeURIComponent(rawKey).replace(/^\/+/, '');
+        const signedUrl = await s3Service.getReadUrl(cleanKey, 86400);
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.redirect(signedUrl);
+        return true;
+      } catch (signErr) {
+        console.warn('[proxyImage] getReadUrl fallback also failed:', signErr);
+        return false;
+      }
+    }
+  };
+
   // 1. AWS S3 URL handling
   if (rawUrl.includes('amazonaws.com')) {
     const parts = rawUrl.split('.amazonaws.com/');
     if (parts[1]) {
-      const key = parts[1].split('?')[0];
-      if (key) {
-        try {
-          const { stream, contentType } = await s3Service.getObjectStream(decodeURIComponent(key));
-          res.setHeader('Content-Type', contentType || 'image/jpeg');
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          stream.pipe(res);
-          return;
-        } catch {
-          try {
-            const signedUrl = await s3Service.getReadUrl(decodeURIComponent(key), 86400);
-            res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-            res.setHeader('Access-Control-Allow-Origin', '*');
-            res.redirect(signedUrl);
-            return;
-          } catch {
-            // fallback to general fetch below
-          }
-        }
+      let key = parts[1].split('?')[0] || '';
+      const currentBucket = s3Service.getBucketName();
+      if (currentBucket && key.startsWith(`${currentBucket}/`)) {
+        key = key.slice(currentBucket.length + 1);
       }
+      if (key && (await tryStreamS3Key(key))) {
+        return;
+      }
+    }
+  }
+
+  // 1b. Direct storage key or local path handling (e.g. branding/logos/...)
+  if (
+    rawUrl.startsWith('branding/') ||
+    rawUrl.startsWith('/branding/') ||
+    rawUrl.startsWith('uploads/') ||
+    rawUrl.startsWith('/uploads/') ||
+    (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))
+  ) {
+    const key = rawUrl.replace(/^\/?(uploads\/)?/, '');
+    if (key && (await tryStreamS3Key(key))) {
+      return;
     }
   }
 

@@ -31,6 +31,7 @@ import { proxyRouter } from '@/modules/proxy/proxy.routes.js';
 import { proxyImage } from '@/modules/proxy/proxy.controller.js';
 import { rbacRouter } from '@/modules/rbac/rbac.routes.js';
 import { reviewsRouter } from '@/modules/reviews/reviews.routes.js';
+import { settingsRouter } from '@/modules/settings/settings.routes.js';
 import { clientPortalsRouter } from '@/modules/client_portals/client_portals.routes.js';
 import { labPortalRouter } from '@/modules/lab_portal/lab_portal.routes.js';
 import { staffRouter } from '@/modules/staff/staff.routes.js';
@@ -79,6 +80,7 @@ apiRouter.use('/admin/support', adminSupportRouter);
 apiRouter.use('/admin/orders', ordersRouter);
 apiRouter.use('/patient/feedback', feedbackRouter);
 
+apiRouter.use('/settings', settingsRouter);
 apiRouter.use('/rbac', rbacRouter);
 apiRouter.use('/roles', rbacRouter);
 apiRouter.use('/client-portals', clientPortalsRouter);

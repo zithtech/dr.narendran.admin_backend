@@ -1,11 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 
 import { GetObjectCommand, PutObjectCommand, S3 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import { env } from '@/config/env.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function getContentTypeFromKey(key: string): string {
   const ext = path.extname(key).toLowerCase();
@@ -64,13 +68,17 @@ export class S3Service {
       this.isR2 = false;
       this.bucketName = env.S3_BUCKET_NAME;
       this.s3 = new S3({
-        region: env.AWS_REGION || 'eu-north-1',
+        region: env.AWS_REGION || 'ap-south-2',
         credentials: {
           accessKeyId: env.AWS_ACCESS_KEY_ID || '',
           secretAccessKey: env.AWS_SECRET_ACCESS_KEY || '',
         },
       });
     }
+  }
+
+  getBucketName(): string {
+    return this.bucketName;
   }
 
   getLocalFilePath(key: string): string {
@@ -87,6 +95,16 @@ export class S3Service {
     // Check with an extra uploads/ folder
     const nestedPath = path.join(this.localUploadsDir, 'uploads', cleanKey);
     if (fs.existsSync(nestedPath)) return nestedPath;
+
+    // Check relative to current working directory paths
+    const cwdCandidates = [
+      path.resolve(process.cwd(), 'uploads', cleanKey),
+      path.resolve(process.cwd(), 'dr.narendran.admin_backend', 'uploads', cleanKey),
+      path.resolve(process.cwd(), 'dr.narendran.adminbackend', 'uploads', cleanKey),
+    ];
+    for (const c of cwdCandidates) {
+      if (fs.existsSync(c)) return c;
+    }
 
     return directPath;
   }
@@ -126,7 +144,7 @@ export class S3Service {
         return { fileUrl: `${env.R2_PUBLIC_URL.replace(/\/$/, '')}/${key}`, key };
       }
 
-      const region = env.AWS_REGION || 'eu-north-1';
+      const region = env.AWS_REGION || 'ap-south-2';
       const fileUrl = this.isR2
         ? `https://${this.bucketName}.r2.cloudflarestorage.com/${key}`
         : `https://${this.bucketName}.s3.${region}.amazonaws.com/${key}`;
@@ -152,7 +170,7 @@ export class S3Service {
       });
 
       const uploadUrl = await getSignedUrl(this.s3, command, { expiresIn });
-      const region = env.AWS_REGION || 'eu-north-1';
+      const region = env.AWS_REGION || 'ap-south-2';
       const fileUrl = this.isR2
         ? `https://${this.bucketName}.r2.cloudflarestorage.com/${key}`
         : `https://${this.bucketName}.s3.${region}.amazonaws.com/${key}`;

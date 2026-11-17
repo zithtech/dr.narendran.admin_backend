@@ -24,28 +24,32 @@ async function signProfileUrl(url?: string | null): Promise<string | null> {
 }
 
 export interface CreatePatientInput {
-  user_account_id?: string | null;
+  user_account_id?: string | null | undefined;
   hospital_id: string;
-  branch_id?: string | null;
+  branch_id?: string | null | undefined;
   name: string;
-  phone?: string | null;
-  email?: string | null;
-  date_of_birth?: string | null;
-  gender?: string | null;
-  address?: string | null;
-  address_line_1?: string | null;
-  address_line_2?: string | null;
-  city?: string | null;
-  state?: string | null;
-  pincode?: string | null;
+  phone?: string | null | undefined;
+  email?: string | null | undefined;
+  date_of_birth?: string | null | undefined;
+  gender?: string | null | undefined;
+  address?: string | null | undefined;
+  address_line_1?: string | null | undefined;
+  address_line_2?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  pincode?: string | null | undefined;
   status: 'ACTIVE' | 'INACTIVE';
-  height_cm?: number | null;
-  weight_kg?: number | null;
-  blood_group?: string | null;
-  marital_status?: string | null;
+  height_cm?: number | null | undefined;
+  weight_kg?: number | null | undefined;
+  blood_group?: string | null | undefined;
+  blood_pressure?: string | null | undefined;
+  blood_sugar?: string | null | undefined;
+  body_temperature?: string | null | undefined;
+  custom_vitals?: any;
+  marital_status?: string | null | undefined;
   emergency_contacts?: any;
-  profile_image_url?: string | null;
-  is_active?: boolean | null;
+  profile_image_url?: string | null | undefined;
+  is_active?: boolean | null | undefined;
 }
 
 export interface UpdatePatientInput extends CreatePatientInput {
@@ -62,11 +66,15 @@ async function ensurePatientColumns(client: any): Promise<void> {
         ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255),
         ADD COLUMN IF NOT EXISTS city VARCHAR(100),
         ADD COLUMN IF NOT EXISTS state VARCHAR(100),
-        ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);
+        ADD COLUMN IF NOT EXISTS pincode VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS blood_pressure VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS blood_sugar VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS body_temperature VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS custom_vitals JSONB DEFAULT '[]'::jsonb;
     `);
     patientColumnsEnsured = true;
   } catch (err) {
-    console.error('Failed to ensure patient address columns:', err);
+    console.error('Failed to ensure patient address and vitals columns:', err);
   }
 }
 
@@ -141,9 +149,11 @@ export class PatientsService {
         `INSERT INTO patients (
           user_account_id, hospital_id, branch_id, name, phone, email, date_of_birth, gender, 
           address, address_line_1, address_line_2, city, state, pincode, 
-          status, height_cm, weight_kg, blood_group, marital_status, emergency_contacts, profile_image_url, is_active, created_at, updated_at
+          status, height_cm, weight_kg, blood_group, marital_status, emergency_contacts, profile_image_url, is_active,
+          blood_pressure, blood_sugar, body_temperature, custom_vitals,
+          created_at, updated_at
         ) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW()) RETURNING *`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW()) RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -167,6 +177,10 @@ export class PatientsService {
           data.emergency_contacts ? JSON.stringify(data.emergency_contacts) : null,
           data.profile_image_url || null,
           data.is_active !== undefined ? data.is_active : true,
+          data.blood_pressure || null,
+          data.blood_sugar || null,
+          data.body_temperature || null,
+          data.custom_vitals ? JSON.stringify(data.custom_vitals) : '[]',
         ],
       );
       if (rows[0]?.profile_image_url) {
@@ -195,8 +209,9 @@ export class PatientsService {
              date_of_birth = $7, gender = $8, address = $9, address_line_1 = $10, address_line_2 = $11, 
              city = $12, state = $13, pincode = $14, status = $15, height_cm = $16, weight_kg = $17, 
              blood_group = $18, marital_status = $19, emergency_contacts = $20, profile_image_url = $21, 
-             is_active = $22, updated_at = NOW() 
-         WHERE id = $23 RETURNING *`,
+             is_active = $22, blood_pressure = $23, blood_sugar = $24, body_temperature = $25, custom_vitals = $26,
+             updated_at = NOW() 
+         WHERE id = $27 RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -220,6 +235,10 @@ export class PatientsService {
           data.emergency_contacts ? JSON.stringify(data.emergency_contacts) : null,
           data.profile_image_url || null,
           data.is_active !== undefined ? data.is_active : true,
+          data.blood_pressure || null,
+          data.blood_sugar || null,
+          data.body_temperature || null,
+          data.custom_vitals ? JSON.stringify(data.custom_vitals) : '[]',
           data.id,
         ],
       );

@@ -6,7 +6,10 @@ import { handler } from '@/http/middleware/validate.js';
 import * as controller from './inventory.controller.js';
 import {
   adjustStockSchema,
+  batchDispenseSchema,
   damagedStockSchema,
+  dispenseStockSchema,
+  queryAllHistorySchema,
   queryHistorySchema,
   returnStockSchema,
   stockInSchema,
@@ -28,7 +31,41 @@ inventoryRouter.get(
   ...handler({}, controller.getSummaryStats),
 );
 
+// Reduce & Dispense Summary statistics
+inventoryRouter.get(
+  '/reduce-summary',
+  requirePermission('INVENTORY', 'read'),
+  ...handler({}, controller.getReduceSummary),
+);
+
+// Global Reduce / Dispense History ledger
+inventoryRouter.get(
+  '/dispenses',
+  requirePermission('INVENTORY', 'read'),
+  ...handler({ query: queryAllHistorySchema }, controller.getAllDispenseHistory),
+);
+
+// Direct Dispense / Reduce Stock
+inventoryRouter.post(
+  '/dispense',
+  requirePermission('INVENTORY', 'update'),
+  ...handler({ body: dispenseStockSchema }, controller.dispense),
+);
+
+// Batch Dispense / Reduce Stock for multiple items
+inventoryRouter.post(
+  '/batch-dispense',
+  requirePermission('INVENTORY', 'update'),
+  ...handler({ body: batchDispenseSchema }, controller.batchDispense),
+);
+
 // Stock Operations on specific variant
+inventoryRouter.post(
+  '/:id/dispense',
+  requirePermission('INVENTORY', 'update'),
+  ...handler({ params: paramIdSchema, body: dispenseStockSchema }, controller.dispense),
+);
+
 inventoryRouter.post(
   '/:id/stock-in',
   requirePermission('INVENTORY', 'update'),

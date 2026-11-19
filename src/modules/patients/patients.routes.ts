@@ -7,6 +7,7 @@ import {proxyImage} from '@/modules/proxy/proxy.controller.js';
 import {uploadImage} from '@/modules/upload/upload.controller.js';
 
 import {MedicalTimelineController} from './medicalTimeline.controller.js';
+import {PatientMedicalHistoryController} from './patientMedicalHistory.controller.js';
 import {PatientsController} from './patients.controller.js';
 
 const upload = multer({
@@ -37,6 +38,56 @@ patientsRouter.get(
   requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
   PatientsController.getAll,
 );
+// Patient Medical History Endpoints
+patientsRouter.get(
+  '/:patientId/medical-histories',
+  requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
+  PatientMedicalHistoryController.getHistories,
+);
+patientsRouter.get(
+  '/:patientId/medical-histories/latest',
+  requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
+  PatientMedicalHistoryController.getLatest,
+);
+patientsRouter.get(
+  '/:patientId/medical-histories/:historyId',
+  requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
+  PatientMedicalHistoryController.getById,
+);
+patientsRouter.post(
+  '/:patientId/medical-histories',
+  requirePermission('PATIENTS', 'create', ['PRESCRIPTIONS']),
+  PatientMedicalHistoryController.create,
+);
+patientsRouter.put(
+  '/:patientId/medical-histories/:historyId',
+  requirePermission('PATIENTS', 'update', ['PRESCRIPTIONS']),
+  PatientMedicalHistoryController.update,
+);
+patientsRouter.delete(
+  '/:patientId/medical-histories/:historyId',
+  requirePermission('PATIENTS', 'delete'),
+  PatientMedicalHistoryController.delete,
+);
+
+// Patient Medical Documents Endpoints
+patientsRouter.get(
+  '/:patientId/medical-documents',
+  requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
+  PatientMedicalHistoryController.getDocuments,
+);
+patientsRouter.post(
+  '/:patientId/medical-documents',
+  requirePermission('PATIENTS', 'create', ['PRESCRIPTIONS']),
+  upload.single('file'),
+  PatientMedicalHistoryController.uploadDocument,
+);
+patientsRouter.delete(
+  '/:patientId/medical-documents/:documentId',
+  requirePermission('PATIENTS', 'delete'),
+  PatientMedicalHistoryController.deleteDocument,
+);
+
 patientsRouter.get(
   '/:id',
   requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),

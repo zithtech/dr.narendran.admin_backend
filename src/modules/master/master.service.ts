@@ -6,6 +6,10 @@ import {env} from '@/config/env.js';
 import pg from 'pg';
 import * as pgMigrate from 'node-pg-migrate';
 import crypto from 'crypto';
+import {
+  generatePasswordResetEmailHtml,
+  generatePasswordResetEmailText,
+} from '@/templates/passwordResetEmail.js';
 
 let masterTablesEnsured = false;
 
@@ -715,18 +719,28 @@ export class MasterService {
 
       const resetUrl = `http://localhost:5173/master/reset-password?token=${token}`;
 
+      const emailHtml = generatePasswordResetEmailHtml({
+        name: user.name || user.email,
+        resetUrl,
+        expiresMinutes: 60,
+        hospitalName: 'HMS Admin',
+        hospitalSubtext: 'Healthcare Platform Administration',
+        logoUrl: `http://localhost:5173/assets/brand-logo.png`,
+      });
+      const emailText = generatePasswordResetEmailText({
+        name: user.name || user.email,
+        resetUrl,
+        expiresMinutes: 60,
+        hospitalName: 'HMS Admin',
+        hospitalSubtext: 'Healthcare Platform Administration',
+      });
+
       await transporter.sendMail({
         from: `"HMS Admin" <${env.SYSTEM_EMAIL}>`,
         to: email,
-        subject: 'Password Reset Request',
-        html: `
-          <h3>Password Reset Request</h3>
-          <p>Hello ${user.name},</p>
-          <p>You requested a password reset. Click the link below to set a new password:</p>
-          <p><a href="${resetUrl}">Reset Password</a></p>
-          <p>If you didn't request this, you can safely ignore this email. This link will expire in 1 hour.</p>
-          <p><em>Note: Any previously requested reset links are no longer valid.</em></p>
-        `,
+        subject: 'Password Reset Request - HMS Admin',
+        text: emailText,
+        html: emailHtml,
       });
 
       // Step 4: Only save the new token after email is confirmed sent

@@ -156,7 +156,7 @@ export const doctorSchema = z.object({
     .optional()
     .nullable(),
   profile_image_url: z
-    .union([z.string().trim().max(500, 'Profile image URL cannot exceed 500 characters'), z.literal(''), z.null()])
+    .union([z.string().trim().max(2048, 'Profile image URL cannot exceed 2048 characters'), z.literal(''), z.null()])
     .optional()
     .nullable(),
   podcast_url: z

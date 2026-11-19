@@ -6,7 +6,7 @@ import { pool } from '@/db/pool.js';
 import { logger } from '@/lib/logger.js';
 
 import { doctorSchema } from './doctors.schema.js';
-import { doctorsService } from './doctors.service.js';
+import { doctorsService, signProfileUrl } from './doctors.service.js';
 
 export const CURRENT_TERMS_VERSION = 'v1.0';
 
@@ -113,6 +113,10 @@ export const DoctorsController = {
         const termsVersion = doctor.terms_version || null;
         const requiresTerms = !isAccepted || termsVersion !== CURRENT_TERMS_VERSION;
 
+        if (doctor?.profile_image_url) {
+          doctor.profile_image_url = await signProfileUrl(doctor.profile_image_url);
+        }
+
         res.json({
           ...doctor,
           terms_accepted: isAccepted,
@@ -203,14 +207,18 @@ export const DoctorsController = {
         try {
           await client.query(
             `UPDATE doctor_profiles 
-             SET profile_image_url = COALESCE($1, profile_image_url),
+             SET profile_image_url = $1,
                  full_name = COALESCE($2, full_name),
                  updated_at = NOW() 
              WHERE user_id = $3`,
-            [profile_image_url, name, req.user.id]
+            [profile_image_url || null, name, req.user.id]
           );
         } catch (pe) {
           console.warn('[updateMe] Could not sync to doctor_profiles:', pe);
+        }
+
+        if (updated?.profile_image_url) {
+          updated.profile_image_url = await signProfileUrl(updated.profile_image_url);
         }
 
         res.json(updated);

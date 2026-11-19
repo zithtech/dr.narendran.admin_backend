@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { pool } from '@/db/pool.js';
 import { logger } from '@/lib/logger.js';
 import * as repo from '../appointments/appointments.repository.js';
@@ -72,6 +73,7 @@ export type PrescriptionLabTestItem = PrescribedLabTestItem;
 
 export interface FormattedPrescription {
   id: string;
+  prescription_number?: string | undefined;
   patient_id?: string | undefined;
   patient_name?: string | undefined;
   patient_phone?: string | undefined;
@@ -198,7 +200,111 @@ async function signS3DocumentUrl(rawUrl?: string | null): Promise<string | undef
 
 const signPrescriptionImageUrl = signS3DocumentUrl;
 
+let prescriptionColumnsEnsured = false;
+async function ensurePrescriptionColumns(client: PoolClient): Promise<boolean> {
+  if (prescriptionColumnsEnsured) return true;
+  try {
+    await client.query(`
+      ALTER TABLE prescriptions
+      ADD COLUMN IF NOT EXISTS prescription_number VARCHAR(64);
+
+      CREATE INDEX IF NOT EXISTS idx_prescriptions_prescription_number ON prescriptions (prescription_number);
+    `);
+    prescriptionColumnsEnsured = true;
+    return true;
+  } catch (err) {
+    logger.warn({ err }, 'Failed to auto-ensure prescription_number column on prescriptions table');
+    return false;
+  }
+}
+
+async function hasPrescriptionNumberColumn(client: PoolClient): Promise<boolean> {
+  const ensured = await ensurePrescriptionColumns(client);
+  if (ensured) return true;
+  try {
+    const res = await client.query(`
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_name = 'prescriptions' AND column_name = 'prescription_number'
+      LIMIT 1
+    `);
+    return res.rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export class PrescriptionsService {
+  private extractTwoLetterCode(name?: string | null, fallback: string = 'AN'): string {
+    if (!name) return fallback;
+    const cleaned = name.replace(/[^a-zA-Z]/g, '').toUpperCase();
+    if (cleaned.length >= 2) return cleaned.slice(0, 2);
+    if (cleaned.length === 1) return cleaned + 'X';
+    return fallback;
+  }
+
+  private deriveFallbackPrescriptionNumber(
+    id: string,
+    hospitalName?: string | null,
+    branchName?: string | null
+  ): string {
+    const hosp = this.extractTwoLetterCode(hospitalName, 'AN');
+    const branch = this.extractTwoLetterCode(branchName, 'CH');
+    let seq = '001';
+    if (id) {
+      const digitsOnly = id.replace(/\D/g, '');
+      if (digitsOnly.length >= 3) {
+        seq = digitsOnly.slice(-3);
+      } else {
+        const hex = id.replace(/[^0-9a-fA-F]/g, '').slice(-3);
+        const parsed = parseInt(hex, 16) % 1000;
+        seq = String(parsed || 1).padStart(3, '0');
+      }
+    }
+    return `${hosp}-${branch}-${seq}`;
+  }
+
+  private async generatePrescriptionNumber(
+    client: PoolClient,
+    hospitalName?: string | null,
+    branchName?: string | null
+  ): Promise<string> {
+    const hosp = this.extractTwoLetterCode(hospitalName, 'AN');
+    const branch = this.extractTwoLetterCode(branchName, 'CH');
+    const prefix = `${hosp}-${branch}-`;
+
+    try {
+      const hasRxCol = await hasPrescriptionNumberColumn(client);
+      if (!hasRxCol) {
+        return `${prefix}001`;
+      }
+
+      const { rows } = await client.query(
+        `SELECT prescription_number 
+         FROM prescriptions 
+         WHERE prescription_number LIKE $1
+         ORDER BY prescription_number DESC 
+         LIMIT 1`,
+        [`${prefix}%`]
+      );
+
+      let nextSeq = 1;
+      if (rows.length > 0 && rows[0].prescription_number) {
+        const parts = rows[0].prescription_number.split('-');
+        const lastSeqStr = parts[parts.length - 1];
+        const parsed = parseInt(lastSeqStr, 10);
+        if (!isNaN(parsed) && parsed >= 1) {
+          nextSeq = parsed + 1;
+        }
+      }
+
+      const seqStr = String(nextSeq).padStart(3, '0');
+      return `${prefix}${seqStr}`;
+    } catch (err) {
+      logger.warn({ err }, 'Failed to query sequence for prescription_number, fallback to timestamp sequence');
+      return `${prefix}${String(Date.now() % 1000).padStart(3, '0')}`;
+    }
+  }
+
   async getPrescriptions(filters?: {
     user_id?: string | undefined;
     patient_id?: string | undefined;
@@ -212,6 +318,9 @@ export class PrescriptionsService {
   }): Promise<FormattedPrescription[]> {
     const client = await pool.connect();
     try {
+      const hasRxCol = await hasPrescriptionNumberColumn(client);
+      const rxColSelect = hasRxCol ? 'p.prescription_number' : 'NULL::varchar as prescription_number';
+
       const inputId = (filters?.patient_id || filters?.user_id)?.trim();
       let targetPatientId = inputId;
       let targetUserId = inputId;
@@ -266,8 +375,9 @@ export class PrescriptionsService {
 
       if (filters?.search && filters.search.trim().length > 0) {
         const term = `%${filters.search.trim()}%`;
+        const rxColFilter = hasRxCol ? ` OR p.prescription_number ILIKE $${paramIdx}` : '';
         whereClauses.push(
-          `(COALESCE(pat.name, appt.patient_name, '') ILIKE $${paramIdx} OR COALESCE(pat.phone, appt.patient_phone, '') ILIKE $${paramIdx} OR d.name ILIKE $${paramIdx} OR p.additional_notes ILIKE $${paramIdx})`
+          `(COALESCE(pat.name, appt.patient_name, '') ILIKE $${paramIdx} OR COALESCE(pat.phone, appt.patient_phone, '') ILIKE $${paramIdx} OR d.name ILIKE $${paramIdx} OR p.additional_notes ILIKE $${paramIdx} OR p.id::text ILIKE $${paramIdx}${rxColFilter})`
         );
         params.push(term);
         paramIdx++;
@@ -281,6 +391,7 @@ export class PrescriptionsService {
       const query = `
         SELECT 
           p.id,
+          ${rxColSelect},
           p.patient_id,
           p.appointment_id,
           p.prescription_date,
@@ -306,7 +417,9 @@ export class PrescriptionsService {
           COALESCE(pat.custom_vitals, pat_appt.custom_vitals) as patient_custom_vitals,
           d.id as doctor_id,
           d.name as doctor_name,
-          COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty
+          COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty,
+          h.name as hospital_name,
+          b.name as branch_name
         FROM prescriptions p
         LEFT JOIN patients pat ON (
           p.patient_id = pat.id 
@@ -322,6 +435,8 @@ export class PrescriptionsService {
           )
         )
         LEFT JOIN doctors d ON p.doctor_id = d.id
+        LEFT JOIN hospitals h ON d.hospital_id = h.id
+        LEFT JOIN hospital_branches b ON d.branch_id = b.id
         ${whereClause}
         ORDER BY p.prescription_date DESC, p.created_at DESC
         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
@@ -458,6 +573,7 @@ export class PrescriptionsService {
         const signedPrescriptionUrl = await signPrescriptionImageUrl(r.prescription_url);
         result.push({
           id: r.id,
+          prescription_number: r.prescription_number || this.deriveFallbackPrescriptionNumber(r.id, r.hospital_name, r.branch_name),
           patient_id: r.patient_id || undefined,
           patient_name: r.patient_name || undefined,
           patient_phone: r.patient_phone || undefined,
@@ -497,9 +613,16 @@ export class PrescriptionsService {
   async getPrescriptionById(id: string): Promise<FormattedPrescription | null> {
     const client = await pool.connect();
     try {
+      const hasRxCol = await hasPrescriptionNumberColumn(client);
+      const rxColSelect = hasRxCol ? 'p.prescription_number' : 'NULL::varchar as prescription_number';
+      const whereCondition = hasRxCol
+        ? '(p.id::text = $1 OR p.prescription_number = $1)'
+        : 'p.id::text = $1';
+
       const { rows } = await client.query(`
         SELECT 
           p.id,
+          ${rxColSelect},
           p.patient_id,
           p.appointment_id,
           p.prescription_date,
@@ -525,7 +648,9 @@ export class PrescriptionsService {
           COALESCE(pat.custom_vitals, pat_appt.custom_vitals) as patient_custom_vitals,
           d.id as doctor_id,
           d.name as doctor_name,
-          COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty
+          COALESCE(NULLIF(d.specialization, ''), 'General Medicine') as doctor_specialty,
+          h.name as hospital_name,
+          b.name as branch_name
         FROM prescriptions p
         LEFT JOIN patients pat ON (
           p.patient_id = pat.id 
@@ -541,7 +666,9 @@ export class PrescriptionsService {
           )
         )
         LEFT JOIN doctors d ON p.doctor_id = d.id
-        WHERE p.id = $1
+        LEFT JOIN hospitals h ON d.hospital_id = h.id
+        LEFT JOIN hospital_branches b ON d.branch_id = b.id
+        WHERE ${whereCondition}
       `, [id]);
 
       if (rows.length === 0) return null;
@@ -660,6 +787,7 @@ export class PrescriptionsService {
 
       return {
         id: r.id,
+        prescription_number: r.prescription_number || this.deriveFallbackPrescriptionNumber(r.id, r.hospital_name, r.branch_name),
         patient_id: r.patient_id || undefined,
         patient_name: r.patient_name || undefined,
         patient_phone: r.patient_phone || undefined,
@@ -859,6 +987,11 @@ export class PrescriptionsService {
         [resolvedDoctorId]
       );
       const docMeta = docRes.rows[0] || {};
+      const prescriptionNumber = await this.generatePrescriptionNumber(
+        client,
+        docMeta.hospital_name,
+        docMeta.branch_name
+      );
 
       // 5. PDF generation & upload
       let finalPrescriptionUrl = input.prescriptionUrl || input.imageUrl || null;
@@ -917,6 +1050,9 @@ export class PrescriptionsService {
               custom_vitals: patientMeta.custom_vitals || [],
             },
             prescription: {
+              id: prescriptionNumber,
+              prescription_id: prescriptionNumber,
+              prescription_number: prescriptionNumber,
               prescription_date: new Date().toISOString(),
               appointment_id: input.appointmentId || '',
               diagnosis: input.diagnosis || '',
@@ -965,24 +1101,48 @@ export class PrescriptionsService {
       }
 
       // 6. Insert prescription header
-      const prescRes = await client.query(
-        `INSERT INTO prescriptions
-            (patient_id, doctor_id, appointment_id, prescription_date, status, additional_notes, prescription_type, image_url, prescription_url, follow_up_days, follow_up_date, follow_up_status)
-          VALUES ($1, $2, $3, CURRENT_DATE, 'active', $4, $5, $6, $7, $8, $9, $10)
-          RETURNING id, prescription_url`,
-        [
-          resolvedPatientId,
-          resolvedDoctorId,
-          input.appointmentId || null,
-          input.diagnosis ?? input.generalInstructions ?? null,
-          input.prescriptionType ?? 'system',
-          input.imageUrl ?? null,
-          finalPrescriptionUrl,
-          followUpDaysNum,
-          calculatedFollowUpDate,
-          calculatedFollowUpDate ? 'pending' : null,
-        ],
-      );
+      const hasRxCol = await hasPrescriptionNumberColumn(client);
+      let prescRes;
+      if (hasRxCol) {
+        prescRes = await client.query(
+          `INSERT INTO prescriptions
+              (patient_id, doctor_id, appointment_id, prescription_date, status, additional_notes, prescription_type, image_url, prescription_url, follow_up_days, follow_up_date, follow_up_status, prescription_number)
+            VALUES ($1, $2, $3, CURRENT_DATE, 'active', $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING id, prescription_url, prescription_number`,
+          [
+            resolvedPatientId,
+            resolvedDoctorId,
+            input.appointmentId || null,
+            input.diagnosis ?? input.generalInstructions ?? null,
+            input.prescriptionType ?? 'system',
+            input.imageUrl ?? null,
+            finalPrescriptionUrl,
+            followUpDaysNum,
+            calculatedFollowUpDate,
+            calculatedFollowUpDate ? 'pending' : null,
+            prescriptionNumber,
+          ],
+        );
+      } else {
+        prescRes = await client.query(
+          `INSERT INTO prescriptions
+              (patient_id, doctor_id, appointment_id, prescription_date, status, additional_notes, prescription_type, image_url, prescription_url, follow_up_days, follow_up_date, follow_up_status)
+            VALUES ($1, $2, $3, CURRENT_DATE, 'active', $4, $5, $6, $7, $8, $9, $10)
+            RETURNING id, prescription_url`,
+          [
+            resolvedPatientId,
+            resolvedDoctorId,
+            input.appointmentId || null,
+            input.diagnosis ?? input.generalInstructions ?? null,
+            input.prescriptionType ?? 'system',
+            input.imageUrl ?? null,
+            finalPrescriptionUrl,
+            followUpDaysNum,
+            calculatedFollowUpDate,
+            calculatedFollowUpDate ? 'pending' : null,
+          ],
+        );
+      }
       const prescriptionId: string = prescRes.rows[0].id;
 
       // 7. Insert medicines
@@ -1061,7 +1221,7 @@ export class PrescriptionsService {
               screen: 'PrescriptionDetails',
             },
           }).catch((err) => logger.warn({ err }, 'Notification dispatch failed'));
-        } catch {}
+        } catch { }
       }
 
       const created = await this.getPrescriptionById(prescriptionId);
@@ -1164,7 +1324,7 @@ export class PrescriptionsService {
       // Regenerate adherence schedules
       try {
         await medicineScheduleService.generateScheduleForPrescription(id, client);
-      } catch {}
+      } catch { }
 
       await client.query('COMMIT');
 
@@ -1183,8 +1343,8 @@ export class PrescriptionsService {
               appointmentId: current.appointment_id || '',
               screen: 'PrescriptionDetails',
             },
-          }).catch(() => {});
-        } catch {}
+          }).catch(() => { });
+        } catch { }
       }
 
       const updated = await this.getPrescriptionById(id);
@@ -1215,6 +1375,11 @@ export class PrescriptionsService {
         [rx.doctor.id]
       );
       const docMeta = docRes.rows[0] || {};
+      const prescriptionNumber = await this.generatePrescriptionNumber(
+        client,
+        docMeta.hospital_name,
+        docMeta.branch_name
+      );
 
       const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate();
 

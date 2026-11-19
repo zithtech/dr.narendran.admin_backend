@@ -485,7 +485,7 @@ export class LabPortalService {
     const client = await pool.connect();
     try {
       const { rows } = await client.query(
-        `SELECT s.id, s.name, s.description, s.price, s.status, s.created_at, s.updated_at
+        `SELECT s.id, s.name, s.service_code, s.category, s.service_category, s.sample_type, s.description, s.price, s.status, s.created_at, s.updated_at
          FROM lab_services s
          JOIN lab_service_mappings lsm ON s.id = lsm.service_id
          WHERE lsm.lab_id = $1
@@ -500,7 +500,17 @@ export class LabPortalService {
 
   async addLabService(
     labId: string,
-    data: { name: string; description?: string; price?: number; status?: 'ACTIVE' | 'INACTIVE' },
+    data: {
+      name: string;
+      service_code?: string | null | undefined;
+      category?: string | null | undefined;
+      service_category?: string | null | undefined;
+      sample_type?: string | null | undefined;
+      description?: string | null | undefined;
+      price?: number | null | undefined;
+      service_price?: number | null | undefined;
+      status?: 'ACTIVE' | 'INACTIVE' | undefined;
+    },
   ) {
     if (!data.name || data.name.trim().length === 0) {
       throw new ValidationError('Service/test name is required.');
@@ -510,14 +520,38 @@ export class LabPortalService {
     try {
       await client.query('BEGIN');
 
+      const finalCategory = (data.category ?? data.service_category ?? '').trim() || null;
+      const finalPrice =
+        data.price !== undefined && data.price !== null
+          ? data.price
+          : data.service_price !== undefined && data.service_price !== null
+            ? data.service_price
+            : 0;
+
       const { rows } = await client.query(
-        `INSERT INTO lab_services (name, description, price, status, lab_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        `INSERT INTO lab_services (
+           name, 
+           service_code, 
+           category, 
+           service_category, 
+           sample_type, 
+           description, 
+           price, 
+           status, 
+           lab_id, 
+           created_at, 
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
          RETURNING *`,
         [
           data.name.trim(),
-          data.description || null,
-          data.price !== undefined ? data.price : 0,
+          data.service_code ? data.service_code.trim().toUpperCase() : null,
+          finalCategory,
+          finalCategory,
+          data.sample_type ? data.sample_type.trim() : null,
+          data.description ? data.description.trim() : null,
+          finalPrice,
           data.status || 'ACTIVE',
           labId,
         ],
@@ -544,7 +578,17 @@ export class LabPortalService {
   async updateLabService(
     labId: string,
     serviceId: string,
-    data: { name: string; description?: string; price?: number; status?: 'ACTIVE' | 'INACTIVE' },
+    data: {
+      name?: string | undefined;
+      service_code?: string | null | undefined;
+      category?: string | null | undefined;
+      service_category?: string | null | undefined;
+      sample_type?: string | null | undefined;
+      description?: string | null | undefined;
+      price?: number | null | undefined;
+      service_price?: number | null | undefined;
+      status?: 'ACTIVE' | 'INACTIVE' | undefined;
+    },
   ) {
     const client = await pool.connect();
     try {
@@ -557,20 +601,49 @@ export class LabPortalService {
         throw new NotFoundError('Service not found or does not belong to this laboratory.');
       }
 
+      const hasCode = data.service_code !== undefined;
+      const hasCategory = data.category !== undefined || data.service_category !== undefined;
+      const finalCategory = hasCategory
+        ? (data.category ?? data.service_category ?? '').trim() || null
+        : null;
+      const hasSampleType = data.sample_type !== undefined;
+      const hasDescription = data.description !== undefined;
+      const hasPrice =
+        (data.price !== undefined && data.price !== null) ||
+        (data.service_price !== undefined && data.service_price !== null);
+      const finalPrice =
+        data.price !== undefined && data.price !== null
+          ? data.price
+          : data.service_price !== undefined && data.service_price !== null
+            ? data.service_price
+            : null;
+
       const { rows } = await client.query(
         `UPDATE lab_services
          SET name = COALESCE($1, name),
-             description = $2,
-             price = COALESCE($3, price),
-             status = COALESCE($4, status),
+             service_code = CASE WHEN $2::boolean THEN $3 ELSE service_code END,
+             category = CASE WHEN $4::boolean THEN $5 ELSE category END,
+             service_category = CASE WHEN $4::boolean THEN $5 ELSE service_category END,
+             sample_type = CASE WHEN $6::boolean THEN $7 ELSE sample_type END,
+             description = CASE WHEN $8::boolean THEN $9 ELSE description END,
+             price = CASE WHEN $10::boolean THEN $11 ELSE price END,
+             status = COALESCE($12, status),
              updated_at = NOW()
-         WHERE id = $5
+         WHERE id = $13
          RETURNING *`,
         [
-          data.name?.trim(),
-          data.description || null,
-          data.price !== undefined ? data.price : null,
-          data.status,
+          data.name?.trim() || null,
+          hasCode,
+          data.service_code ? data.service_code.trim().toUpperCase() : null,
+          hasCategory,
+          finalCategory,
+          hasSampleType,
+          data.sample_type ? data.sample_type.trim() : null,
+          hasDescription,
+          data.description ? data.description.trim() : null,
+          hasPrice,
+          finalPrice,
+          data.status || null,
           serviceId,
         ],
       );
@@ -755,7 +828,12 @@ export class LabPortalService {
       const { rows } = await client.query(
         `SELECT id, name, phone, email, date_of_birth, gender, blood_group
          FROM patients
-         WHERE name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1 OR id::text ILIKE $1
+         WHERE name ILIKE $1 
+            OR phone ILIKE $1 
+            OR email ILIKE $1 
+            OR id::text ILIKE $1
+            OR id::text IN (SELECT patient_id::text FROM prescription_lab_tests WHERE test_name ILIKE $1)
+            OR id::text IN (SELECT patient_id::text FROM lab_test_reports WHERE test_name ILIKE $1)
          ORDER BY created_at DESC
          LIMIT 15`,
         [`%${q}%`],
@@ -791,7 +869,7 @@ export class LabPortalService {
       );
 
       if (patientRes.rows.length === 0) {
-        throw new NotFoundError('Patient not found.');
+        throw new NotFoundError('Patient');
       }
       const rawPatient = patientRes.rows[0];
       const actualPatientId = rawPatient.id;
@@ -985,10 +1063,41 @@ export class LabPortalService {
 
     const client = await pool.connect();
     try {
-      // Verify patient exists
-      const patientRes = await client.query('SELECT id FROM patients WHERE id::text = $1', [patientId]);
-      if (patientRes.rows.length === 0) {
-        throw new NotFoundError('Patient not found.');
+      // Verify patient exists (check id, user_account_id, user_id or linked prescription)
+      let actualPatientId = patientId;
+      const patientRes = await client.query(
+        `SELECT id FROM patients 
+         WHERE id::text = $1 OR user_account_id::text = $1 OR user_id::text = $1 
+         LIMIT 1`,
+        [patientId],
+      );
+
+      if (patientRes.rows.length > 0) {
+        actualPatientId = patientRes.rows[0].id;
+      } else if (prescriptionLabTestId) {
+        const fallbackRes = await client.query(
+          `SELECT COALESCE(pt.id, plt.patient_id, p.patient_id) as resolved_patient_id
+           FROM prescription_lab_tests plt
+           JOIN prescriptions p ON p.id::text = plt.prescription_id::text
+           LEFT JOIN patients pt ON (
+             pt.id::text = plt.patient_id::text 
+             OR pt.id::text = p.patient_id::text 
+             OR pt.user_account_id::text = plt.patient_id::text 
+             OR pt.user_account_id::text = p.patient_id::text
+             OR pt.user_id::text = plt.patient_id::text 
+             OR pt.user_id::text = p.patient_id::text
+           )
+           WHERE plt.id::text = $1
+           LIMIT 1`,
+          [prescriptionLabTestId],
+        );
+        if (fallbackRes.rows.length > 0 && fallbackRes.rows[0].resolved_patient_id) {
+          actualPatientId = fallbackRes.rows[0].resolved_patient_id;
+        } else {
+          throw new NotFoundError('Patient');
+        }
+      } else {
+        throw new NotFoundError('Patient');
       }
 
       // Check if linked to prescribed test
@@ -1010,7 +1119,7 @@ export class LabPortalService {
 
       const sanitizedFileName = (file.originalname || 'report').replace(/[^a-zA-Z0-9._-]/g, '_');
       const folder = prescriptionLabTestId || 'external';
-      const storageKey = `lab_reports/${patientId}/${folder}/${Date.now()}_${sanitizedFileName}`;
+      const storageKey = `lab_reports/${actualPatientId}/${folder}/${Date.now()}_${sanitizedFileName}`;
 
       let uploadResult: { fileUrl: string; key: string };
       try {
@@ -1047,7 +1156,7 @@ export class LabPortalService {
 
       const { rows } = await client.query(insertSql, [
         prescriptionLabTestId || null,
-        patientId,
+        actualPatientId,
         file.originalname || 'report',
         mimeType,
         file.size,
@@ -1127,6 +1236,89 @@ export class LabPortalService {
 
       await client.query('DELETE FROM lab_test_reports WHERE id::text = $1', [reportId]);
       return { success: true, message: 'Lab report deleted successfully.' };
+    } finally {
+      client.release();
+    }
+  }
+
+  async getUpcomingTests(labId: string) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(labId)) {
+      throw new ValidationError('Invalid lab ID.');
+    }
+
+    const client = await pool.connect();
+    try {
+      const { rows } = await client.query(
+        `SELECT 
+          plt.id,
+          plt.prescription_id,
+          COALESCE(pt.id, plt.patient_id, p.patient_id) as patient_id,
+          plt.lab_test_id,
+          plt.test_name,
+          plt.instructions,
+          plt.created_at,
+          plt.updated_at,
+          plt.lab_id,
+          p.prescription_date,
+          p.doctor_id,
+          p.additional_notes,
+          appt.purpose as consultation_purpose,
+          COALESCE(d.name, 'Dr. Narendran') as doctor_name,
+          d.specialization as doctor_specialization,
+          pt.name as patient_name,
+          pt.phone as patient_phone,
+          pt.email as patient_email,
+          pt.gender as patient_gender,
+          pt.date_of_birth as patient_dob,
+          COALESCE(lt.test_type, 'Diagnostic Investigation') as test_category,
+          l.name as lab_name
+        FROM prescription_lab_tests plt
+        JOIN prescriptions p ON p.id::text = plt.prescription_id::text
+        LEFT JOIN appointments appt ON appt.id::text = p.appointment_id::text
+        LEFT JOIN doctors d ON d.id::text = p.doctor_id::text
+        LEFT JOIN patients pt ON (
+          pt.id::text = plt.patient_id::text 
+          OR pt.id::text = p.patient_id::text 
+          OR pt.user_account_id::text = plt.patient_id::text 
+          OR pt.user_account_id::text = p.patient_id::text
+          OR pt.user_id::text = plt.patient_id::text
+          OR pt.user_id::text = p.patient_id::text
+        )
+        LEFT JOIN lab_tests lt ON lt.id::text = plt.lab_test_id::text
+        LEFT JOIN labs l ON l.id::text = plt.lab_id::text
+        WHERE (plt.lab_id::text = $1::text OR (plt.lab_id IS NULL AND l.id::text = $1::text))
+          AND (p.status IS NULL OR LOWER(p.status::text) NOT IN ('completed', 'cancelled'))
+          AND NOT EXISTS (
+            SELECT 1 FROM lab_test_reports ltr 
+            WHERE ltr.prescription_lab_test_id::text = plt.id::text
+          )
+        ORDER BY plt.created_at DESC`,
+        [labId],
+      );
+
+      return rows.map((r) => ({
+        id: r.id,
+        prescription_id: r.prescription_id,
+        patient_id: r.patient_id || '',
+        patient_name: r.patient_name || 'Patient',
+        patient_phone: r.patient_phone,
+        patient_email: r.patient_email,
+        patient_gender: r.patient_gender,
+        patient_dob: r.patient_dob ? String(r.patient_dob).split('T')[0] : null,
+        doctor_id: r.doctor_id,
+        doctor_name: r.doctor_name,
+        doctor_specialization: r.doctor_specialization || 'Clinical Specialist',
+        test_name: r.test_name,
+        test_category: r.test_category || 'Diagnostic Investigation',
+        instructions: r.instructions,
+        prescription_date: r.prescription_date ? String(r.prescription_date).split('T')[0] : String(r.created_at).split('T')[0],
+        scheduled_date: r.prescription_date ? String(r.prescription_date).split('T')[0] : String(r.created_at).split('T')[0],
+        status: 'Upcoming',
+        diagnosis: r.consultation_purpose || null,
+        notes: r.additional_notes || null,
+        lab_id: r.lab_id,
+        lab_name: r.lab_name,
+      }));
     } finally {
       client.release();
     }

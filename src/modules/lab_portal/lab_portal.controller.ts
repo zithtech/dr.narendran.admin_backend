@@ -104,6 +104,14 @@ export const labPortalController = {
     res.status(200).json(account);
   },
 
+  /* ── Upcoming Prescribed Tests ───────────────────────────── */
+
+  async getUpcomingTests(req: AuthenticatedLabRequest, res: Response) {
+    const labId = req.labUser!.labId;
+    const tests = await labPortalService.getUpcomingTests(labId);
+    res.status(200).json(tests);
+  },
+
   /* ── Patient Lab Test Reports Management ─────────────────── */
 
   async searchPatients(req: AuthenticatedLabRequest, res: Response) {

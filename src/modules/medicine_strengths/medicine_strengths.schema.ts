@@ -194,10 +194,13 @@ export const queryMedicineStrengthsSchema = z.object({
   medicineId: z.string().uuid().optional(),
   search: z.string().optional(),
   dosage_form: z.string().optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'ALL']).optional(),
+  status: z.preprocess((val) => {
+    if (typeof val === 'string') return val.toUpperCase();
+    return val;
+  }, z.enum(['ACTIVE', 'INACTIVE', 'ALL']).optional()),
   stock_status: z.enum(['ALL', 'IN_STOCK', 'LOW_STOCK', 'OUT_OF_STOCK']).optional(),
   page: z.coerce.number().int().positive().optional().default(1),
-  limit: z.coerce.number().int().positive().max(100).optional().default(20),
+  limit: z.coerce.number().int().positive().max(1000).optional().default(20),
 });
 
 export type CreateMedicineStrengthInput = z.infer<typeof createMedicineStrengthSchema>;

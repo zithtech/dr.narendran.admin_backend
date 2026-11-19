@@ -32,6 +32,7 @@ export interface CreatePatientInput {
   email?: string | null | undefined;
   date_of_birth?: string | null | undefined;
   gender?: string | null | undefined;
+  occupation?: string | null | undefined;
   address?: string | null | undefined;
   address_line_1?: string | null | undefined;
   address_line_2?: string | null | undefined;
@@ -62,6 +63,7 @@ async function ensurePatientColumns(client: any): Promise<void> {
   try {
     await client.query(`
       ALTER TABLE patients 
+        ADD COLUMN IF NOT EXISTS occupation VARCHAR(150),
         ADD COLUMN IF NOT EXISTS address_line_1 VARCHAR(255),
         ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255),
         ADD COLUMN IF NOT EXISTS city VARCHAR(100),
@@ -147,13 +149,13 @@ export class PatientsService {
 
       const { rows } = await client.query(
         `INSERT INTO patients (
-          user_account_id, hospital_id, branch_id, name, phone, email, date_of_birth, gender, 
+          user_account_id, hospital_id, branch_id, name, phone, email, date_of_birth, gender, occupation, 
           address, address_line_1, address_line_2, city, state, pincode, 
           status, height_cm, weight_kg, blood_group, marital_status, emergency_contacts, profile_image_url, is_active,
           blood_pressure, blood_sugar, body_temperature, custom_vitals,
           created_at, updated_at
         ) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW(), NOW()) RETURNING *`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW()) RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -163,6 +165,7 @@ export class PatientsService {
           data.email || null,
           data.date_of_birth || null,
           data.gender || null,
+          data.occupation || null,
           address,
           data.address_line_1 || null,
           data.address_line_2 || null,
@@ -206,12 +209,12 @@ export class PatientsService {
       const { rows } = await client.query(
         `UPDATE patients 
          SET user_account_id = $1, hospital_id = $2, branch_id = $3, name = $4, phone = $5, email = $6, 
-             date_of_birth = $7, gender = $8, address = $9, address_line_1 = $10, address_line_2 = $11, 
-             city = $12, state = $13, pincode = $14, status = $15, height_cm = $16, weight_kg = $17, 
-             blood_group = $18, marital_status = $19, emergency_contacts = $20, profile_image_url = $21, 
-             is_active = $22, blood_pressure = $23, blood_sugar = $24, body_temperature = $25, custom_vitals = $26,
+             date_of_birth = $7, gender = $8, occupation = $9, address = $10, address_line_1 = $11, address_line_2 = $12, 
+             city = $13, state = $14, pincode = $15, status = $16, height_cm = $17, weight_kg = $18, 
+             blood_group = $19, marital_status = $20, emergency_contacts = $21, profile_image_url = $22, 
+             is_active = $23, blood_pressure = $24, blood_sugar = $25, body_temperature = $26, custom_vitals = $27,
              updated_at = NOW() 
-         WHERE id = $27 RETURNING *`,
+         WHERE id = $28 RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -221,6 +224,7 @@ export class PatientsService {
           data.email || null,
           data.date_of_birth || null,
           data.gender || null,
+          data.occupation || null,
           address,
           data.address_line_1 || null,
           data.address_line_2 || null,

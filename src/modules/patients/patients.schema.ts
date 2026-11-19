@@ -48,6 +48,7 @@ export const patientSchema = z.object({
     .nullable(),
   date_of_birth: z.union([z.string().trim(), z.literal(''), z.null()]).optional().nullable(),
   gender: z.union([z.string().trim(), z.literal(''), z.null()]).optional().nullable(),
+  occupation: z.union([z.string().trim().max(150, 'Occupation cannot exceed 150 characters'), z.literal(''), z.null()]).optional().nullable(),
   address: z.string().optional().nullable(),
   address_line_1: z
     .union([

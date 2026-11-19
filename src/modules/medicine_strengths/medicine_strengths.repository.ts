@@ -83,7 +83,7 @@ export async function listVariants(
 
   if (query.status && query.status !== 'ALL') {
     params.push(query.status);
-    conditions.push(`ms.status = $${params.length}`);
+    conditions.push(`(UPPER(COALESCE(ms.status, 'ACTIVE')) = UPPER($${params.length}))`);
   }
 
   if (query.dosage_form) {
@@ -119,7 +119,7 @@ export async function listVariants(
     `
     SELECT COUNT(*) AS total
     FROM medicine_strength ms
-    JOIN medicines m ON ms.medicine_id = m.id
+    LEFT JOIN medicines m ON ms.medicine_id = m.id
     ${whereClause}
     `,
     params
@@ -133,14 +133,14 @@ export async function listVariants(
     `
     SELECT 
       ms.*,
-      m.medicine_name,
+      COALESCE(m.medicine_name, 'Unknown Medicine') AS medicine_name,
       m.generic_name,
       m.therapeutic_category,
       m.manufacturer
     FROM medicine_strength ms
-    JOIN medicines m ON ms.medicine_id = m.id
+    LEFT JOIN medicines m ON ms.medicine_id = m.id
     ${whereClause}
-    ORDER BY m.medicine_name ASC, ms.strength ASC
+    ORDER BY COALESCE(m.medicine_name, ms.dosage_form) ASC, ms.strength ASC
     LIMIT $${params.length - 1} OFFSET $${params.length}
     `,
     params

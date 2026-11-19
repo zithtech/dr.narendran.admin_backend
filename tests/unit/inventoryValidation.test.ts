@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   adjustStockSchema,
+  batchDispenseSchema,
   damagedStockSchema,
+  dispenseStockSchema,
+  queryAllHistorySchema,
   returnStockSchema,
   stockInSchema,
   stockOutSchema,
@@ -12,6 +15,73 @@ import {
 } from '../../src/modules/medicine_strengths/medicine_strengths.schema.js';
 
 describe('Inventory & Stock Validation Schema (Medicine Inventory)', () => {
+  describe('dispenseStockSchema (Reduce Medicine)', () => {
+    it('accepts valid single tablet dispense data', () => {
+      const valid = {
+        medicine_strength_id: '123e4567-e89b-12d3-a456-426614174000',
+        quantity: 10,
+        patient_name: 'Ramesh Kumar',
+        reference_number: 'DISP-2026-001',
+        reason: 'Given to Patient',
+        notes: '1 tablet twice daily after meals',
+      };
+      const result = dispenseStockSchema.safeParse(valid);
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects zero or negative quantity in dispense', () => {
+      expect(dispenseStockSchema.safeParse({ quantity: 0 }).success).toBe(false);
+      expect(dispenseStockSchema.safeParse({ quantity: -5 }).success).toBe(false);
+    });
+  });
+
+  describe('batchDispenseSchema (Reduce Medicine Batch)', () => {
+    it('accepts valid batch dispense with multiple medicines', () => {
+      const valid = {
+        items: [
+          {
+            medicine_strength_id: '123e4567-e89b-12d3-a456-426614174000',
+            quantity: 10,
+            notes: 'Paracetamol 500mg',
+          },
+          {
+            medicine_strength_id: '223e4567-e89b-12d3-a456-426614174001',
+            quantity: 5,
+            notes: 'Amoxicillin 250mg',
+          },
+        ],
+        patient_name: 'Priya Sharma',
+        reference_number: 'RX-DISP-892',
+        reason: 'Prescription Dispense',
+      };
+      const result = batchDispenseSchema.safeParse(valid);
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects empty items in batch dispense', () => {
+      const invalid = {
+        items: [],
+        patient_name: 'Priya',
+      };
+      expect(batchDispenseSchema.safeParse(invalid).success).toBe(false);
+    });
+  });
+
+  describe('queryAllHistorySchema', () => {
+    it('accepts valid query filters', () => {
+      const valid = {
+        page: 1,
+        limit: 25,
+        search: 'Paracetamol',
+        transaction_type: 'DISPENSE',
+        start_date: '2026-11-01',
+        end_date: '2026-11-30',
+      };
+      const result = queryAllHistorySchema.safeParse(valid);
+      expect(result.success).toBe(true);
+    });
+  });
+
   describe('stockInSchema', () => {
     it('accepts valid stock-in data', () => {
       const valid = {

@@ -161,6 +161,12 @@ export const AVAILABLE_MODULES: ModuleDefinition[] = [
     description: 'Manage hospital staff profiles, employee codes, shift timings, and documents',
   },
   {
+    slug: 'ATTENDANCE',
+    name: 'Attendance & Shifts',
+    category: 'Administration & Security',
+    description: 'Monitor hospital-wide attendance, manage shifts, manual entry, and payroll reports',
+  },
+  {
     slug: 'ROLES',
     name: 'Roles & Permissions',
     category: 'Administration & Security',

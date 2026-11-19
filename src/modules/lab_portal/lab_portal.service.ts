@@ -485,7 +485,7 @@ export class LabPortalService {
     const client = await pool.connect();
     try {
       const { rows } = await client.query(
-        `SELECT s.id, s.name, s.description, s.price, s.status, s.created_at, s.updated_at
+        `SELECT s.id, s.name, s.service_code, s.category, s.service_category, s.sample_type, s.description, s.price, s.status, s.created_at, s.updated_at
          FROM lab_services s
          JOIN lab_service_mappings lsm ON s.id = lsm.service_id
          WHERE lsm.lab_id = $1
@@ -500,7 +500,17 @@ export class LabPortalService {
 
   async addLabService(
     labId: string,
-    data: { name: string; description?: string; price?: number; status?: 'ACTIVE' | 'INACTIVE' },
+    data: {
+      name: string;
+      service_code?: string | null | undefined;
+      category?: string | null | undefined;
+      service_category?: string | null | undefined;
+      sample_type?: string | null | undefined;
+      description?: string | null | undefined;
+      price?: number | null | undefined;
+      service_price?: number | null | undefined;
+      status?: 'ACTIVE' | 'INACTIVE' | undefined;
+    },
   ) {
     if (!data.name || data.name.trim().length === 0) {
       throw new ValidationError('Service/test name is required.');
@@ -510,14 +520,38 @@ export class LabPortalService {
     try {
       await client.query('BEGIN');
 
+      const finalCategory = (data.category ?? data.service_category ?? '').trim() || null;
+      const finalPrice =
+        data.price !== undefined && data.price !== null
+          ? data.price
+          : data.service_price !== undefined && data.service_price !== null
+            ? data.service_price
+            : 0;
+
       const { rows } = await client.query(
-        `INSERT INTO lab_services (name, description, price, status, lab_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        `INSERT INTO lab_services (
+           name, 
+           service_code, 
+           category, 
+           service_category, 
+           sample_type, 
+           description, 
+           price, 
+           status, 
+           lab_id, 
+           created_at, 
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
          RETURNING *`,
         [
           data.name.trim(),
-          data.description || null,
-          data.price !== undefined ? data.price : 0,
+          data.service_code ? data.service_code.trim().toUpperCase() : null,
+          finalCategory,
+          finalCategory,
+          data.sample_type ? data.sample_type.trim() : null,
+          data.description ? data.description.trim() : null,
+          finalPrice,
           data.status || 'ACTIVE',
           labId,
         ],
@@ -544,7 +578,17 @@ export class LabPortalService {
   async updateLabService(
     labId: string,
     serviceId: string,
-    data: { name: string; description?: string; price?: number; status?: 'ACTIVE' | 'INACTIVE' },
+    data: {
+      name?: string | undefined;
+      service_code?: string | null | undefined;
+      category?: string | null | undefined;
+      service_category?: string | null | undefined;
+      sample_type?: string | null | undefined;
+      description?: string | null | undefined;
+      price?: number | null | undefined;
+      service_price?: number | null | undefined;
+      status?: 'ACTIVE' | 'INACTIVE' | undefined;
+    },
   ) {
     const client = await pool.connect();
     try {
@@ -557,20 +601,49 @@ export class LabPortalService {
         throw new NotFoundError('Service not found or does not belong to this laboratory.');
       }
 
+      const hasCode = data.service_code !== undefined;
+      const hasCategory = data.category !== undefined || data.service_category !== undefined;
+      const finalCategory = hasCategory
+        ? (data.category ?? data.service_category ?? '').trim() || null
+        : null;
+      const hasSampleType = data.sample_type !== undefined;
+      const hasDescription = data.description !== undefined;
+      const hasPrice =
+        (data.price !== undefined && data.price !== null) ||
+        (data.service_price !== undefined && data.service_price !== null);
+      const finalPrice =
+        data.price !== undefined && data.price !== null
+          ? data.price
+          : data.service_price !== undefined && data.service_price !== null
+            ? data.service_price
+            : null;
+
       const { rows } = await client.query(
         `UPDATE lab_services
          SET name = COALESCE($1, name),
-             description = $2,
-             price = COALESCE($3, price),
-             status = COALESCE($4, status),
+             service_code = CASE WHEN $2::boolean THEN $3 ELSE service_code END,
+             category = CASE WHEN $4::boolean THEN $5 ELSE category END,
+             service_category = CASE WHEN $4::boolean THEN $5 ELSE service_category END,
+             sample_type = CASE WHEN $6::boolean THEN $7 ELSE sample_type END,
+             description = CASE WHEN $8::boolean THEN $9 ELSE description END,
+             price = CASE WHEN $10::boolean THEN $11 ELSE price END,
+             status = COALESCE($12, status),
              updated_at = NOW()
-         WHERE id = $5
+         WHERE id = $13
          RETURNING *`,
         [
-          data.name?.trim(),
-          data.description || null,
-          data.price !== undefined ? data.price : null,
-          data.status,
+          data.name?.trim() || null,
+          hasCode,
+          data.service_code ? data.service_code.trim().toUpperCase() : null,
+          hasCategory,
+          finalCategory,
+          hasSampleType,
+          data.sample_type ? data.sample_type.trim() : null,
+          hasDescription,
+          data.description ? data.description.trim() : null,
+          hasPrice,
+          finalPrice,
+          data.status || null,
           serviceId,
         ],
       );

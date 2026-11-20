@@ -28,6 +28,9 @@ labPortalRouter.post('/services', requireLabPortalAuth, labPortalController.addS
 labPortalRouter.put('/services/:serviceId', requireLabPortalAuth, labPortalController.updateService);
 labPortalRouter.delete('/services/:serviceId', requireLabPortalAuth, labPortalController.deleteService);
 
+// Upcoming Prescribed Tests for Authenticated Lab
+labPortalRouter.get('/upcoming-tests', requireLabPortalAuth, labPortalController.getUpcomingTests);
+
 // Patient Lab Reports Endpoints
 labPortalRouter.get('/patients/search', requireLabPortalAuth, labPortalController.searchPatients);
 labPortalRouter.get('/patients/:patientId/tests-and-reports', requireLabPortalAuth, labPortalController.getPatientTestsAndReports);

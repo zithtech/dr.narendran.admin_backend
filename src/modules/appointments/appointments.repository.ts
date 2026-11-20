@@ -811,7 +811,7 @@ export async function createAppointmentTx(params: {
       }>(
         `
         SELECT 
-          COALESCE(p.name, u.username, 'Patient') AS "patientName",
+          COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, u.username, 'Patient') AS "patientName",
           p.phone AS "patientPhone"
         FROM user_accounts u
         LEFT JOIN patients p ON p.user_account_id = u.id
@@ -1038,6 +1038,7 @@ export async function getAllAppointments(filters?: AdminAppointmentFilter): Prom
     const idx = values.length;
     conditions.push(`(
       LOWER(COALESCE(p.name, a.patient_name, '')) LIKE $${idx} OR
+      LOWER(COALESCE(p.patient_id, '')) LIKE $${idx} OR
       LOWER(COALESCE(p.phone, a.patient_phone, '')) LIKE $${idx} OR
       LOWER(COALESCE(d.name, '')) LIKE $${idx} OR
       LOWER(COALESCE(a.purpose, '')) LIKE $${idx} OR
@@ -1051,7 +1052,7 @@ export async function getAllAppointments(filters?: AdminAppointmentFilter): Prom
     SELECT 
       a.id,
       a.patient_id AS "patientId",
-      COALESCE(p.name, a.patient_name, 'Patient') AS "patientName",
+      COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, a.patient_name, 'Patient') AS "patientName",
       COALESCE(p.phone, a.patient_phone, '') AS "patientPhone",
       p.email AS "patientEmail",
       p.gender AS "patientGender",
@@ -1163,7 +1164,7 @@ export async function getDoctorDailySchedules(params?: {
     SELECT 
       a.id,
       a.patient_id AS "patientId",
-      COALESCE(p.name, a.patient_name, 'Patient') AS "patientName",
+      COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, a.patient_name, 'Patient') AS "patientName",
       COALESCE(p.phone, a.patient_phone, '') AS "patientPhone",
       p.email AS "patientEmail",
       a.doctor_id AS "doctorId",
@@ -1267,7 +1268,7 @@ export async function getAppointmentById(
       a.token_number AS "tokenNumber",
       a.purpose,
       a.patient_note AS "patientNote",
-      COALESCE(p.name, a.patient_name) AS "patientName",
+      COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, a.patient_name) AS "patientName",
       COALESCE(p.phone, a.patient_phone) AS "patientPhone",
       a.status,
       a.reschedule_reason AS "rescheduleReason",
@@ -1739,7 +1740,7 @@ export async function getAppointmentsForDoctor(
       a.patient_phone   AS "patientPhone",
       a.status,
       a.consultation_notes AS "consultationNotes",
-      p.name            AS "patientNameFromTable"
+      COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, p.name) AS "patientNameFromTable"
     FROM appointments a
     LEFT JOIN patients p ON a.patient_id = p.id
     WHERE a.doctor_id = $1
@@ -1749,11 +1750,12 @@ export async function getAppointmentsForDoctor(
 
   return rows.map(r => {
     const rawName: string = r.patientName || r.patientNameFromTable || 'Patient';
-    // Build initials from name
-    const parts = rawName.trim().split(/\s+/);
+    // Build initials from name (stripping patient ID suffix if present)
+    const nameWithoutId = rawName.replace(/\s*\([^)]*\)$/, '').trim();
+    const parts = (nameWithoutId || rawName).trim().split(/\s+/);
     const initials = parts.length >= 2
       ? (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
-      : rawName.slice(0, 2).toUpperCase();
+      : (nameWithoutId || rawName).slice(0, 2).toUpperCase();
 
     // Format time as HH:MM (IST)
     const dt = new Date(r.scheduledStart);
@@ -2665,7 +2667,7 @@ export async function getDoctorRescheduleRequests(
       a.token_number AS "tokenNumber",
       a.purpose AS "appointmentPurpose",
       a.status AS "appointmentStatus",
-      COALESCE(p.name, a.patient_name, 'Patient') AS "patientName",
+      COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, a.patient_name, 'Patient') AS "patientName",
       COALESCE(p.phone, '') AS "patientPhone",
       p.gender AS "patientGender",
       p.profile_image_url AS "patientProfileImageUrl"
@@ -2785,7 +2787,7 @@ export async function sendRescheduleReminderTx(params: {
          a.scheduled_end AS orig_scheduled_end,
          a.token_number,
          a.purpose,
-         COALESCE(p.name, a.patient_name, 'Patient') AS patient_name,
+         COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, a.patient_name, 'Patient') AS patient_name,
          COALESCE(p.phone, '') AS patient_phone,
          p.gender AS patient_gender,
          p.profile_image_url AS patient_profile_image_url,

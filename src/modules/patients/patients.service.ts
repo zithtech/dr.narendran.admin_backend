@@ -24,6 +24,7 @@ async function signProfileUrl(url?: string | null): Promise<string | null> {
 }
 
 export interface CreatePatientInput {
+  patient_id?: string | null | undefined;
   user_account_id?: string | null | undefined;
   hospital_id: string;
   branch_id?: string | null | undefined;
@@ -62,7 +63,10 @@ async function ensurePatientColumns(client: any): Promise<void> {
   if (patientColumnsEnsured) return;
   try {
     await client.query(`
+      CREATE SEQUENCE IF NOT EXISTS patient_id_seq START WITH 1;
+
       ALTER TABLE patients 
+        ADD COLUMN IF NOT EXISTS patient_id VARCHAR(50),
         ADD COLUMN IF NOT EXISTS occupation VARCHAR(150),
         ADD COLUMN IF NOT EXISTS address_line_1 VARCHAR(255),
         ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255),
@@ -73,10 +77,34 @@ async function ensurePatientColumns(client: any): Promise<void> {
         ADD COLUMN IF NOT EXISTS blood_sugar VARCHAR(50),
         ADD COLUMN IF NOT EXISTS body_temperature VARCHAR(50),
         ADD COLUMN IF NOT EXISTS custom_vitals JSONB DEFAULT '[]'::jsonb;
+
+      DO $$
+      DECLARE
+        rec RECORD;
+        cnt INT := 0;
+      BEGIN
+        SELECT COALESCE(MAX(SUBSTRING(patient_id FROM 4)::INTEGER), 0) INTO cnt 
+        FROM patients 
+        WHERE patient_id ~ '^PA_[0-9]+$';
+
+        FOR rec IN SELECT id FROM patients WHERE patient_id IS NULL ORDER BY created_at ASC, id ASC LOOP
+          cnt := cnt + 1;
+          UPDATE patients SET patient_id = 'PA_' || LPAD(cnt::TEXT, 3, '0') WHERE id = rec.id;
+        END LOOP;
+
+        IF cnt > 0 THEN
+          PERFORM setval('patient_id_seq', cnt, true);
+        END IF;
+      END $$;
+
+      ALTER TABLE patients
+        ALTER COLUMN patient_id SET DEFAULT ('PA_' || LPAD(nextval('patient_id_seq')::TEXT, 3, '0'));
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_patient_id ON patients(patient_id);
     `);
     patientColumnsEnsured = true;
   } catch (err) {
-    console.error('Failed to ensure patient address and vitals columns:', err);
+    console.error('Failed to ensure patient address, vitals, and patient_id columns:', err);
   }
 }
 
@@ -96,7 +124,7 @@ export class PatientsService {
       const params: any[] = [];
       if (search && search.trim()) {
         params.push(`%${search.trim()}%`);
-        query += ` WHERE (p.name ILIKE $1 OR p.phone ILIKE $1 OR p.email ILIKE $1) `;
+        query += ` WHERE (p.name ILIKE $1 OR p.phone ILIKE $1 OR p.email ILIKE $1 OR p.patient_id ILIKE $1) `;
       }
       query += ` ORDER BY p.created_at DESC `;
       const { rows } = await client.query(query, params);
@@ -153,9 +181,14 @@ export class PatientsService {
           address, address_line_1, address_line_2, city, state, pincode, 
           status, height_cm, weight_kg, blood_group, marital_status, emergency_contacts, profile_image_url, is_active,
           blood_pressure, blood_sugar, body_temperature, custom_vitals,
+          patient_id,
           created_at, updated_at
         ) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW()) RETURNING *`,
+         VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
+          COALESCE($28, 'PA_' || LPAD(nextval('patient_id_seq')::TEXT, 3, '0')),
+          NOW(), NOW()
+        ) RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -184,6 +217,7 @@ export class PatientsService {
           data.blood_sugar || null,
           data.body_temperature || null,
           data.custom_vitals ? JSON.stringify(data.custom_vitals) : '[]',
+          data.patient_id || null,
         ],
       );
       if (rows[0]?.profile_image_url) {

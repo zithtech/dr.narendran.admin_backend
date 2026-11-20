@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const patientSchema = z.object({
+  patient_id: z.string().trim().optional().nullable(),
   user_account_id: z.union([z.string().uuid('Invalid user account ID'), z.literal(''), z.null()]).optional().nullable(),
   hospital_id: z.string().uuid('Invalid hospital ID'),
   branch_id: z.union([z.string().uuid('Invalid branch ID'), z.literal(''), z.null()]).optional().nullable(),
@@ -10,7 +11,7 @@ export const patientSchema = z.object({
     .min(1, 'Patient name is required')
     .min(2, 'Patient name must be at least 2 characters')
     .max(100, 'Patient name cannot exceed 100 characters')
-    .regex(/^[a-zA-Z\s.-]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
+    .regex(/^[a-zA-Z0-9\s._\-()]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
   phone: z
     .union([
       z

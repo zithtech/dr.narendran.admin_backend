@@ -52,6 +52,7 @@ export interface TimelineEvent {
 
 export interface PatientTimelineHeader {
   id: string;
+  patient_id?: string | null | undefined;
   name: string;
   age: number | null;
   gender: string | null;

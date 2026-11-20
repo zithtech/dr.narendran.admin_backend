@@ -3,6 +3,7 @@ import { query, queryOne } from '@/db/query.js';
 
 export interface RawPatientRow {
   id: string;
+  patientId?: string | null;
   userAccountId: string | null;
   name: string;
   phone: string | null;
@@ -158,8 +159,9 @@ export async function getPatientProfile(
     const sql = `
       SELECT
         p.id,
+        p.patient_id               AS "patientId",
         p.user_account_id          AS "userAccountId",
-        COALESCE(p.name, u.username, 'Patient') AS "name",
+        COALESCE(CASE WHEN p.patient_id IS NOT NULL AND p.patient_id != '' THEN p.name || ' (' || p.patient_id || ')' ELSE p.name END, u.username, 'Patient') AS "name",
         COALESCE(p.phone, u.username) AS "phone",
         COALESCE(p.email, u.username) AS "email",
         p.date_of_birth::text      AS "dateOfBirth",

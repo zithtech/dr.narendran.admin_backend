@@ -23,7 +23,7 @@ export const createAppointmentSchema = z.object({
         .trim()
         .min(2, 'Patient name must be at least 2 characters')
         .max(100, 'Patient name cannot exceed 100 characters')
-        .regex(/^[a-zA-Z\s.-]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
+        .regex(/^[a-zA-Z0-9\s._\-()]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
       z.literal(''),
       z.null(),
     ])
@@ -199,7 +199,7 @@ export const updateAppointmentSchema = z.object({
         .trim()
         .min(2, 'Patient name must be at least 2 characters')
         .max(100, 'Patient name cannot exceed 100 characters')
-        .regex(/^[a-zA-Z\s.-]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
+        .regex(/^[a-zA-Z0-9\s._\-()]+$/, 'Patient name can only contain letters, spaces, hyphens, and periods'),
       z.literal(''),
       z.null(),
     ])

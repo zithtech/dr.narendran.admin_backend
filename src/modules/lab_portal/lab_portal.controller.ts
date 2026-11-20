@@ -133,12 +133,15 @@ export const labPortalController = {
     const patientId = Array.isArray(req.params['patientId'])
       ? req.params['patientId'][0]
       : req.params['patientId'];
-    const { testName, prescriptionLabTestId, reportDate, notes } = req.body;
+    const { testName, prescriptionLabTestId, prescriptionId, patientPhone, patientName, reportDate, notes } = req.body;
 
     const report = await labPortalService.uploadLabReport({
       labUserId,
       patientId: patientId as string,
       prescriptionLabTestId: prescriptionLabTestId || null,
+      prescriptionId: prescriptionId || null,
+      patientPhone: patientPhone || null,
+      patientName: patientName || null,
       testName,
       reportDate,
       notes,

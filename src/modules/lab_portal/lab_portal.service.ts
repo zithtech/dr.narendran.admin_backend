@@ -1036,12 +1036,26 @@ export class LabPortalService {
     labUserId: string;
     patientId: string;
     prescriptionLabTestId?: string | null | undefined;
+    prescriptionId?: string | null | undefined;
+    patientPhone?: string | null | undefined;
+    patientName?: string | null | undefined;
     testName: string;
     reportDate?: string | undefined;
     notes?: string | null | undefined;
     file?: Express.Multer.File | undefined;
   }) {
-    const { labUserId, patientId, prescriptionLabTestId, testName, reportDate, notes, file } = params;
+    const {
+      labUserId,
+      patientId,
+      prescriptionLabTestId,
+      prescriptionId,
+      patientPhone,
+      patientName,
+      testName,
+      reportDate,
+      notes,
+      file,
+    } = params;
 
     if (!file) {
       throw new ValidationError('Report file is required.');
@@ -1063,40 +1077,106 @@ export class LabPortalService {
 
     const client = await pool.connect();
     try {
-      // Verify patient exists (check id, user_account_id, user_id or linked prescription)
-      let actualPatientId = patientId;
-      const patientRes = await client.query(
-        `SELECT id FROM patients 
-         WHERE id::text = $1 OR user_account_id::text = $1 OR user_id::text = $1 
-         LIMIT 1`,
-        [patientId],
-      );
+      // Verify patient exists (check id, user_account_id, user_id or linked prescription/appointment)
+      let actualPatientId: string | null = null;
+      const cleanPatientId = (patientId || '').trim();
 
-      if (patientRes.rows.length > 0) {
-        actualPatientId = patientRes.rows[0].id;
-      } else if (prescriptionLabTestId) {
-        const fallbackRes = await client.query(
-          `SELECT COALESCE(pt.id, plt.patient_id, p.patient_id) as resolved_patient_id
-           FROM prescription_lab_tests plt
-           JOIN prescriptions p ON p.id::text = plt.prescription_id::text
-           LEFT JOIN patients pt ON (
-             pt.id::text = plt.patient_id::text 
-             OR pt.id::text = p.patient_id::text 
-             OR pt.user_account_id::text = plt.patient_id::text 
-             OR pt.user_account_id::text = p.patient_id::text
-             OR pt.user_id::text = plt.patient_id::text 
-             OR pt.user_id::text = p.patient_id::text
-           )
-           WHERE plt.id::text = $1
+      // 1. Direct match on patients table by id, user_account_id, user_id or phone
+      if (cleanPatientId) {
+        const patientRes = await client.query(
+          `SELECT id FROM patients 
+           WHERE id::text = $1 
+              OR user_account_id::text = $1 
+              OR user_id::text = $1
+              OR phone = $1
            LIMIT 1`,
-          [prescriptionLabTestId],
+          [cleanPatientId],
         );
-        if (fallbackRes.rows.length > 0 && fallbackRes.rows[0].resolved_patient_id) {
-          actualPatientId = fallbackRes.rows[0].resolved_patient_id;
-        } else {
-          throw new NotFoundError('Patient');
+        if (patientRes.rows.length > 0) {
+          actualPatientId = patientRes.rows[0].id;
         }
-      } else {
+      }
+
+      // 2. Resolve via prescription lab test or prescription ID
+      const targetPltId = prescriptionLabTestId || null;
+      const targetRxId = prescriptionId || null;
+
+      if (!actualPatientId && (targetPltId || targetRxId)) {
+        const fallbackRes = await client.query(
+          `SELECT 
+             COALESCE(
+               pt_direct.id,
+               pt_appt.id,
+               pt_phone.id,
+               appt.patient_id,
+               plt.patient_id,
+               p.patient_id
+             ) as resolved_patient_id
+           FROM prescription_lab_tests plt
+           LEFT JOIN prescriptions p ON p.id::text = plt.prescription_id::text
+           LEFT JOIN appointments appt ON appt.id::text = p.appointment_id::text
+           LEFT JOIN patients pt_direct ON (
+             pt_direct.id::text = plt.patient_id::text 
+             OR pt_direct.id::text = p.patient_id::text 
+             OR pt_direct.user_account_id::text = plt.patient_id::text 
+             OR pt_direct.user_account_id::text = p.patient_id::text
+             OR pt_direct.user_id::text = plt.patient_id::text 
+             OR pt_direct.user_id::text = p.patient_id::text
+           )
+           LEFT JOIN patients pt_appt ON (
+             appt.patient_id IS NOT NULL AND (
+               pt_appt.id::text = appt.patient_id::text
+               OR pt_appt.user_account_id::text = appt.patient_id::text
+               OR pt_appt.user_id::text = appt.patient_id::text
+             )
+           )
+           LEFT JOIN patients pt_phone ON (
+             (appt.patient_phone IS NOT NULL AND pt_phone.phone = appt.patient_phone)
+             OR (p.patient_phone IS NOT NULL AND pt_phone.phone = p.patient_phone)
+           )
+           WHERE ($1::text IS NOT NULL AND (plt.id::text = $1::text OR plt.prescription_id::text = $1::text))
+              OR ($2::text IS NOT NULL AND (p.id::text = $2::text OR plt.prescription_id::text = $2::text))
+           LIMIT 1`,
+          [targetPltId, targetRxId],
+        );
+
+        if (fallbackRes.rows.length > 0 && fallbackRes.rows[0].resolved_patient_id) {
+          const candidate = fallbackRes.rows[0].resolved_patient_id;
+          const candCheck = await client.query(
+            `SELECT id FROM patients 
+             WHERE id::text = $1 OR user_account_id::text = $1 OR user_id::text = $1 LIMIT 1`,
+            [candidate],
+          );
+          if (candCheck.rows.length > 0) {
+            actualPatientId = candCheck.rows[0].id;
+          } else {
+            actualPatientId = candidate;
+          }
+        }
+      }
+
+      // 3. Fallback: match by patientPhone or patientName if provided
+      if (!actualPatientId && patientPhone && patientPhone.trim()) {
+        const phoneRes = await client.query(
+          `SELECT id FROM patients WHERE phone = $1 LIMIT 1`,
+          [patientPhone.trim()],
+        );
+        if (phoneRes.rows.length > 0) {
+          actualPatientId = phoneRes.rows[0].id;
+        }
+      }
+
+      if (!actualPatientId && patientName && patientName.trim()) {
+        const nameRes = await client.query(
+          `SELECT id FROM patients WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+          [patientName.trim()],
+        );
+        if (nameRes.rows.length > 0) {
+          actualPatientId = nameRes.rows[0].id;
+        }
+      }
+
+      if (!actualPatientId) {
         throw new NotFoundError('Patient');
       }
 
@@ -1252,7 +1332,7 @@ export class LabPortalService {
         `SELECT 
           plt.id,
           plt.prescription_id,
-          COALESCE(pt.id, plt.patient_id, p.patient_id) as patient_id,
+          COALESCE(pt.id, appt.patient_id, plt.patient_id, p.patient_id) as patient_id,
           plt.lab_test_id,
           plt.test_name,
           plt.instructions,
@@ -1265,24 +1345,28 @@ export class LabPortalService {
           appt.purpose as consultation_purpose,
           COALESCE(d.name, 'Dr. Narendran') as doctor_name,
           d.specialization as doctor_specialization,
-          pt.name as patient_name,
-          pt.phone as patient_phone,
-          pt.email as patient_email,
+          COALESCE(pt.name, appt.patient_name, 'Patient') as patient_name,
+          COALESCE(pt.phone, appt.patient_phone) as patient_phone,
+          COALESCE(pt.email, appt.patient_email) as patient_email,
           pt.gender as patient_gender,
           pt.date_of_birth as patient_dob,
           COALESCE(lt.test_type, 'Diagnostic Investigation') as test_category,
           l.name as lab_name
         FROM prescription_lab_tests plt
-        JOIN prescriptions p ON p.id::text = plt.prescription_id::text
+        LEFT JOIN prescriptions p ON p.id::text = plt.prescription_id::text
         LEFT JOIN appointments appt ON appt.id::text = p.appointment_id::text
         LEFT JOIN doctors d ON d.id::text = p.doctor_id::text
         LEFT JOIN patients pt ON (
           pt.id::text = plt.patient_id::text 
           OR pt.id::text = p.patient_id::text 
+          OR pt.id::text = appt.patient_id::text
           OR pt.user_account_id::text = plt.patient_id::text 
           OR pt.user_account_id::text = p.patient_id::text
+          OR pt.user_account_id::text = appt.patient_id::text
           OR pt.user_id::text = plt.patient_id::text
           OR pt.user_id::text = p.patient_id::text
+          OR pt.user_id::text = appt.patient_id::text
+          OR (appt.patient_phone IS NOT NULL AND pt.phone = appt.patient_phone)
         )
         LEFT JOIN lab_tests lt ON lt.id::text = plt.lab_test_id::text
         LEFT JOIN labs l ON l.id::text = plt.lab_id::text

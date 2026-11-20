@@ -48,6 +48,7 @@ export const patientSchema = z.object({
     .nullable(),
   date_of_birth: z.union([z.string().trim(), z.literal(''), z.null()]).optional().nullable(),
   gender: z.union([z.string().trim(), z.literal(''), z.null()]).optional().nullable(),
+  occupation: z.union([z.string().trim().max(150, 'Occupation cannot exceed 150 characters'), z.literal(''), z.null()]).optional().nullable(),
   address: z.string().optional().nullable(),
   address_line_1: z
     .union([
@@ -125,7 +126,7 @@ export const patientSchema = z.object({
   marital_status: z.union([z.string().trim(), z.literal(''), z.null()]).optional().nullable(),
   emergency_contacts: z.any().optional().nullable(),
   profile_image_url: z
-    .union([z.string().trim().max(500, 'Profile image URL cannot exceed 500 characters'), z.literal(''), z.null()])
+    .union([z.string().trim().max(2048, 'Profile image URL cannot exceed 2048 characters'), z.literal(''), z.null()])
     .optional()
     .nullable(),
   is_active: z.boolean().optional().nullable(),

@@ -1,7 +1,7 @@
 import { pool } from '@/db/pool.js';
 import { s3Service } from '@/modules/s3/s3.service.js';
 
-async function signProfileUrl(url?: string | null): Promise<string | null> {
+export async function signProfileUrl(url?: string | null): Promise<string | null> {
   if (!url || typeof url !== 'string' || !url.trim()) return null;
   const trimmed = url.trim();
   if (trimmed.includes('amazonaws.com') && !trimmed.includes('X-Amz-Signature')) {
@@ -197,6 +197,8 @@ async function ensureDoctorColumns(client: any): Promise<void> {
         ADD COLUMN IF NOT EXISTS city VARCHAR(100),
         ADD COLUMN IF NOT EXISTS state VARCHAR(100),
         ADD COLUMN IF NOT EXISTS pincode VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS profile_image_url TEXT,
+        ADD COLUMN IF NOT EXISTS podcast_url TEXT,
         ADD COLUMN IF NOT EXISTS gender VARCHAR(20);
     `);
     columnsEnsured = true;

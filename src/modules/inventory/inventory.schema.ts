@@ -98,9 +98,71 @@ export const queryHistorySchema = z.object({
   end_date: z.string().optional(),
 });
 
+export const dispenseStockSchema = z.object({
+  medicine_strength_id: z.string().uuid().optional(),
+  quantity: z
+    .coerce
+    .number()
+    .int('Quantity must be an integer')
+    .positive('Quantity must be greater than zero')
+    .max(1000000, 'Quantity cannot exceed 1,000,000'),
+  patient_id: z.string().uuid().optional().nullable(),
+  patient_name: z.string().trim().max(200).optional().nullable(),
+  prescription_id: z.string().uuid().optional().nullable(),
+  reference_number: z
+    .string()
+    .trim()
+    .max(100, 'Reference number cannot exceed 100 characters')
+    .regex(/^[a-zA-Z0-9\-_/#\s]*$/, 'Reference number contains invalid characters')
+    .optional()
+    .nullable(),
+  reason: z.string().trim().max(255).optional().nullable(),
+  notes: z.string().trim().max(1000, 'Notes cannot exceed 1000 characters').optional().nullable(),
+});
+
+export const batchDispenseItemSchema = z.object({
+  medicine_strength_id: z.string().uuid('Invalid medicine variant ID'),
+  quantity: z
+    .coerce
+    .number()
+    .int('Quantity must be an integer')
+    .positive('Quantity must be greater than zero')
+    .max(1000000, 'Quantity cannot exceed 1,000,000'),
+  notes: z.string().trim().max(500).optional().nullable(),
+});
+
+export const batchDispenseSchema = z.object({
+  items: z.array(batchDispenseItemSchema).min(1, 'At least one medicine item is required'),
+  patient_id: z.string().uuid().optional().nullable(),
+  patient_name: z.string().trim().max(200).optional().nullable(),
+  prescription_id: z.string().uuid().optional().nullable(),
+  reference_number: z
+    .string()
+    .trim()
+    .max(100, 'Reference number cannot exceed 100 characters')
+    .regex(/^[a-zA-Z0-9\-_/#\s]*$/, 'Reference number contains invalid characters')
+    .optional()
+    .nullable(),
+  reason: z.string().trim().max(255).optional().nullable(),
+  notes: z.string().trim().max(1000, 'Notes cannot exceed 1000 characters').optional().nullable(),
+});
+
+export const queryAllHistorySchema = z.object({
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().positive().max(1000).optional().default(100),
+  search: z.string().optional(),
+  transaction_type: z.string().optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  medicine_strength_id: z.string().uuid().optional(),
+});
+
 export type StockInInput = z.infer<typeof stockInSchema>;
 export type StockOutInput = z.infer<typeof stockOutSchema>;
 export type AdjustStockInput = z.infer<typeof adjustStockSchema>;
 export type DamagedStockInput = z.infer<typeof damagedStockSchema>;
 export type ReturnStockInput = z.infer<typeof returnStockSchema>;
 export type QueryHistoryInput = z.infer<typeof queryHistorySchema>;
+export type DispenseStockInput = z.infer<typeof dispenseStockSchema>;
+export type BatchDispenseInput = z.infer<typeof batchDispenseSchema>;
+export type QueryAllHistoryInput = z.infer<typeof queryAllHistorySchema>;

@@ -1,8 +1,12 @@
+import { pool } from '@/db/pool.js';
 import { NotFoundError, ValidationError } from '@/http/errors.js';
 import * as repository from './inventory.repository.js';
 import type {
   AdjustStockInput,
+  BatchDispenseInput,
   DamagedStockInput,
+  DispenseStockInput,
+  QueryAllHistoryInput,
   QueryHistoryInput,
   ReturnStockInput,
   StockInInput,
@@ -193,4 +197,147 @@ export async function getStockHistory(
 
 export async function getSummaryStats() {
   return repository.getSummaryStats();
+}
+
+export async function recordDispense(
+  medicineStrengthId: string,
+  input: DispenseStockInput,
+  performedBy?: string
+) {
+  let patientName = input.patient_name?.trim() || '';
+  if (!patientName && input.patient_id) {
+    try {
+      const patRes = await pool.query('SELECT name, phone FROM patients WHERE id = $1', [input.patient_id]);
+      if (patRes.rows[0]) {
+        patientName = patRes.rows[0].name;
+      }
+    } catch {
+      // Ignored
+    }
+  }
+
+  const reasonParts: string[] = [];
+  if (input.reason?.trim()) {
+    reasonParts.push(input.reason.trim());
+  } else {
+    reasonParts.push('Dispensed to Patient');
+  }
+  if (patientName) {
+    reasonParts.push(`(${patientName})`);
+  }
+
+  const notesParts: string[] = [];
+  if (patientName) notesParts.push(`Patient: ${patientName}`);
+  if (input.prescription_id) notesParts.push(`Prescription Ref: ${input.prescription_id}`);
+  if (input.notes?.trim()) notesParts.push(input.notes.trim());
+
+  const refNumber =
+    input.reference_number?.trim() ||
+    `DISP-${Date.now().toString(36).toUpperCase()}`;
+
+  try {
+    const result = await repository.executeStockMovement({
+      medicineStrengthId,
+      transactionType: 'DISPENSE',
+      quantityDelta: -Math.abs(input.quantity),
+      referenceNumber: refNumber,
+      reason: reasonParts.join(' '),
+      notes: notesParts.join(' | ') || null,
+      performedBy,
+    });
+
+    return {
+      variant: formatVariant(result.updatedVariant),
+      historyRecord: result.historyRecord,
+    };
+  } catch (err: any) {
+    if (err.message === 'MEDICINE_VARIANT_NOT_FOUND') {
+      throw new NotFoundError('Medicine strength variant not found');
+    }
+    if (err.message === 'INSUFFICIENT_STOCK') {
+      throw new ValidationError('Insufficient stock on hand for dispensing this tablet quantity');
+    }
+    throw err;
+  }
+}
+
+export async function recordBatchDispense(
+  input: BatchDispenseInput,
+  performedBy?: string
+) {
+  let patientName = input.patient_name?.trim() || '';
+  if (!patientName && input.patient_id) {
+    try {
+      const patRes = await pool.query('SELECT name, phone FROM patients WHERE id = $1', [input.patient_id]);
+      if (patRes.rows[0]) {
+        patientName = patRes.rows[0].name;
+      }
+    } catch {
+      // Ignored
+    }
+  }
+
+  const refNumber =
+    input.reference_number?.trim() ||
+    `DISP-${Date.now().toString(36).toUpperCase()}`;
+
+  const baseReason = input.reason?.trim() || 'Dispensed to Patient';
+  const fullReason = patientName ? `${baseReason} (${patientName})` : baseReason;
+
+  const movementItems = input.items.map((item) => {
+    const itemNotes: string[] = [];
+    if (patientName) itemNotes.push(`Patient: ${patientName}`);
+    if (input.prescription_id) itemNotes.push(`Prescription Ref: ${input.prescription_id}`);
+    if (item.notes?.trim()) itemNotes.push(item.notes.trim());
+    if (input.notes?.trim()) itemNotes.push(input.notes.trim());
+
+    return {
+      medicineStrengthId: item.medicine_strength_id,
+      transactionType: 'DISPENSE',
+      quantityDelta: -Math.abs(item.quantity),
+      referenceNumber: refNumber,
+      reason: fullReason,
+      notes: itemNotes.join(' | ') || null,
+    };
+  });
+
+  try {
+    const results = await repository.executeBatchStockMovement({
+      items: movementItems,
+      performedBy,
+    });
+
+    return {
+      dispensedCount: results.length,
+      referenceNumber: refNumber,
+      patientName: patientName || null,
+      items: results.map((r) => ({
+        variant: formatVariant(r.updatedVariant),
+        historyRecord: r.historyRecord,
+      })),
+    };
+  } catch (err: any) {
+    if (err.message?.startsWith('MEDICINE_VARIANT_NOT_FOUND')) {
+      throw new NotFoundError('One or more selected medicine variants could not be found');
+    }
+    if (err.message?.startsWith('INSUFFICIENT_STOCK')) {
+      throw new ValidationError('Insufficient stock available for one or more medicines');
+    }
+    throw err;
+  }
+}
+
+export async function getAllDispenseHistory(query: QueryAllHistoryInput) {
+  const { items, total } = await repository.getAllHistory(query);
+  return {
+    items,
+    total,
+    page: query.page,
+    limit: query.limit,
+    totalPages: Math.ceil(total / query.limit),
+  };
+}
+
+export async function getReduceSummaryStats() {
+  return repository.getReduceSummaryStats();
 }

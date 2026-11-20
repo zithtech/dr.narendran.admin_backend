@@ -2,7 +2,10 @@ import type { Request, Response } from 'express';
 import * as service from './inventory.service.js';
 import type {
   AdjustStockInput,
+  BatchDispenseInput,
   DamagedStockInput,
+  DispenseStockInput,
+  QueryAllHistoryInput,
   QueryHistoryInput,
   ReturnStockInput,
   StockInInput,
@@ -88,5 +91,53 @@ export async function getStockHistory(
 
 export async function getSummaryStats(_input: unknown, _req: Request, res: Response): Promise<void> {
   const result = await service.getSummaryStats();
+  res.json({ success: true, data: result });
+}
+
+export async function dispense(
+  input: { params?: { id?: string }; body: DispenseStockInput },
+  req: Request,
+  res: Response
+): Promise<void> {
+  const targetVariantId = input.params?.id || input.body.medicine_strength_id;
+  if (!targetVariantId) {
+    res.status(400).json({ success: false, message: 'Medicine variant ID is required' });
+    return;
+  }
+  const result = await service.recordDispense(
+    targetVariantId,
+    input.body,
+    req.user?.id
+  );
+  res.json({ success: true, ...result });
+}
+
+export async function batchDispense(
+  input: { body: BatchDispenseInput },
+  req: Request,
+  res: Response
+): Promise<void> {
+  const result = await service.recordBatchDispense(
+    input.body,
+    req.user?.id
+  );
+  res.json({ success: true, ...result });
+}
+
+export async function getAllDispenseHistory(
+  input: { query: QueryAllHistoryInput },
+  _req: Request,
+  res: Response
+): Promise<void> {
+  const result = await service.getAllDispenseHistory(input.query);
+  res.json({ success: true, ...result });
+}
+
+export async function getReduceSummary(
+  _input: unknown,
+  _req: Request,
+  res: Response
+): Promise<void> {
+  const result = await service.getReduceSummaryStats();
   res.json({ success: true, data: result });
 }

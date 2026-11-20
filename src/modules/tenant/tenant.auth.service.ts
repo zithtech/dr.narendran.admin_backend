@@ -1,8 +1,38 @@
 /* eslint-disable */
 // @ts-nocheck
+import crypto from 'crypto';
 import { hash, verify } from 'argon2';
 import { pool } from '@/db/pool.js';
 import { getTenantPool } from '@/db/tenant-pool.js';
+import { env } from '@/config/env.js';
+import {
+  generatePasswordResetEmailHtml,
+  generatePasswordResetEmailText,
+} from '@/templates/passwordResetEmail.js';
+import { settingsService } from '@/modules/settings/settings.service.js';
+
+export function validatePasswordStrength(password: string): { isValid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (!password || password.length < 8) {
+    errors.push('Password must be at least 8 characters long.');
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push('Password must contain at least one uppercase letter.');
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push('Password must contain at least one lowercase letter.');
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push('Password must contain at least one number.');
+  }
+  if (!/[!@#$%^&*(),.?":{}|<>_\-\\\/+=]/.test(password)) {
+    errors.push('Password must contain at least one special character.');
+  }
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
 
 async function verifyPasswordSafe(hashStr: string | null | undefined, plain: string): Promise<boolean> {
   if (!hashStr || !plain) return false;
@@ -309,6 +339,351 @@ export class TenantAuthService {
       }
 
       return updated;
+    } finally {
+      client.release();
+    }
+  }
+
+  async initResetTokensTable(client: any): Promise<void> {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        email varchar(255) NOT NULL,
+        token varchar(255) NOT NULL UNIQUE,
+        user_id uuid,
+        account_table varchar(50),
+        expires_at timestamp with time zone NOT NULL,
+        used boolean NOT NULL DEFAULT false,
+        created_at timestamp with time zone NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token);
+      CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_email ON password_reset_tokens(lower(email));
+    `);
+  }
+
+  async requestPasswordReset(identifier: string, origin?: string): Promise<{ message: string }> {
+    const client = await pool.connect();
+    try {
+      await this.initResetTokensTable(client);
+
+      const cleanIdentifier = (identifier || '').trim().toLowerCase();
+      if (!cleanIdentifier) {
+        return { message: 'If an account exists with this email, you will receive a password reset link.' };
+      }
+
+      // Lookup user in admin_users, user_accounts, master_admin_users, tenant_admin_master_login, users
+      let matchedUser: { id: string; email: string; name?: string; table: string } | null = null;
+
+      // 1. admin_users
+      try {
+        const { rows } = await client.query(
+          `SELECT id, username, name, first_name, last_name, logo_url FROM admin_users WHERE lower(username) = $1`,
+          [cleanIdentifier],
+        );
+        if (rows.length > 0) {
+          const u = rows[0];
+          const fullName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+          matchedUser = { id: u.id, email: u.username, name: fullName, table: 'admin_users' };
+        }
+      } catch (_e) {}
+
+      // 2. user_accounts
+      if (!matchedUser) {
+        try {
+          const { rows } = await client.query(
+            `SELECT id, username, first_name, last_name, logo_url FROM user_accounts WHERE lower(username) = $1`,
+            [cleanIdentifier],
+          );
+          if (rows.length > 0) {
+            const u = rows[0];
+            const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+            matchedUser = { id: u.id, email: u.username, name: fullName, table: 'user_accounts' };
+          }
+        } catch (_e) {}
+      }
+
+      // 3. doctors (if doctor account exists by email)
+      if (!matchedUser) {
+        try {
+          const { rows } = await client.query(
+            `SELECT id, email, name, first_name, last_name FROM doctors WHERE lower(email) = $1`,
+            [cleanIdentifier],
+          );
+          if (rows.length > 0) {
+            const u = rows[0];
+            const rawName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || '';
+            const docName = rawName ? (rawName.toLowerCase().startsWith('dr') ? rawName : `Dr. ${rawName}`) : undefined;
+            matchedUser = { id: u.id, email: u.email, name: docName, table: 'doctors' };
+          }
+        } catch (_e) {}
+      }
+
+      // 4. staff (if staff account exists by email)
+      if (!matchedUser) {
+        try {
+          const { rows } = await client.query(
+            `SELECT id, email, name, first_name, last_name FROM staff WHERE lower(email) = $1`,
+            [cleanIdentifier],
+          );
+          if (rows.length > 0) {
+            const u = rows[0];
+            const fullName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+            matchedUser = { id: u.id, email: u.email, name: fullName, table: 'staff' };
+          }
+        } catch (_e) {}
+      }
+
+      // 5. master_admin_users
+      if (!matchedUser) {
+        try {
+          const { rows } = await client.query(
+            `SELECT id, email, name, first_name, last_name FROM master_admin_users WHERE lower(email) = $1`,
+            [cleanIdentifier],
+          );
+          if (rows.length > 0) {
+            const u = rows[0];
+            const fullName = u.name || [u.first_name, u.last_name].filter(Boolean).join(' ') || undefined;
+            matchedUser = { id: u.id, email: u.email, name: fullName, table: 'master_admin_users' };
+          }
+        } catch (_e) {}
+      }
+
+      // 6. users
+      if (!matchedUser) {
+        try {
+          const { rows } = await client.query(
+            `SELECT id, email, name FROM users WHERE lower(email) = $1`,
+            [cleanIdentifier],
+          );
+          if (rows.length > 0) {
+            matchedUser = { id: rows[0].id, email: rows[0].email, name: rows[0].name, table: 'users' };
+          }
+        } catch (_e) {}
+      }
+
+      // If user account exists, generate a token, invalidate existing tokens, and send email
+      if (matchedUser) {
+        const email = matchedUser.email;
+
+        // Invalidate existing active reset tokens for this email
+        await client.query(
+          `UPDATE password_reset_tokens SET used = true WHERE lower(email) = $1 AND used = false`,
+          [email.toLowerCase()],
+        );
+
+        // Generate a unique, securely generated, time-limited token
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes expiration
+
+        await client.query(
+          `INSERT INTO password_reset_tokens (email, token, user_id, account_table, expires_at, used)
+           VALUES ($1, $2, $3, $4, $5, false)`,
+          [email.toLowerCase(), token, matchedUser.id, matchedUser.table, expiresAt],
+        );
+
+        // Build reset URL
+        const appOrigin = origin || env.CLIENT_APP_URL || 'http://localhost:5173';
+        const cleanOrigin = appOrigin.replace(/\/+$/, '');
+        const resetUrl = `${cleanOrigin}/reset-password?token=${token}`;
+
+        // Retrieve hospital branding settings (Hospital Name and Logo)
+        let hospitalName = 'Dr. Narendran HMS';
+        const hospitalSubtext = 'Clinical Management & Practitioner Portal';
+        let logoUrl = `${cleanOrigin}/assets/brand-logo.png`;
+
+        try {
+          const branding = await settingsService.getSettings(matchedUser.id);
+          if (branding?.fullName && branding.fullName !== 'System Administrator') {
+            hospitalName = branding.fullName;
+          } else if (branding?.firstName && branding.firstName !== 'System') {
+            hospitalName = [branding.firstName, branding.lastName].filter(Boolean).join(' ');
+          }
+          if (branding?.logoUrl && branding.logoUrl.trim()) {
+            logoUrl = branding.logoUrl.trim();
+          }
+        } catch (_err) {}
+
+        // Send email via nodemailer
+        try {
+          const nodemailer = await import('nodemailer');
+          const transporter = nodemailer.createTransport({
+            host: env.SYSTEM_HOST,
+            port: env.SYSTEM_PORT,
+            secure: env.SYSTEM_SECURE,
+            auth: {
+              user: env.SYSTEM_EMAIL,
+              pass: env.SYSTEM_APP_PASSWORD,
+            },
+          });
+
+          const emailHtml = generatePasswordResetEmailHtml({
+            name: matchedUser.name || matchedUser.email,
+            resetUrl,
+            expiresMinutes: 30,
+            hospitalName,
+            hospitalSubtext,
+            logoUrl,
+          });
+          const emailText = generatePasswordResetEmailText({
+            name: matchedUser.name || matchedUser.email,
+            resetUrl,
+            expiresMinutes: 30,
+            hospitalName,
+            hospitalSubtext,
+          });
+
+          await transporter.sendMail({
+            from: `"${hospitalName}" <${env.SYSTEM_EMAIL}>`,
+            to: email,
+            subject: `Password Reset Request - ${hospitalName}`,
+            text: emailText,
+            html: emailHtml,
+          });
+        } catch (mailErr: any) {
+          console.warn(`[TenantAuthService] Could not send password reset email to ${email}:`, mailErr?.message || mailErr);
+          console.info(`[TenantAuthService] Reset password link (development): ${resetUrl}`);
+        }
+      }
+
+      // Do not reveal whether an email address is registered or not
+      return {
+        message: 'If an account exists with this email, you will receive a password reset link.',
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  async verifyResetToken(token: string): Promise<{ valid: boolean; email?: string; error?: string }> {
+    const cleanToken = (token || '').trim();
+    if (!cleanToken) {
+      return { valid: false, error: 'Reset token is required.' };
+    }
+
+    const client = await pool.connect();
+    try {
+      await this.initResetTokensTable(client);
+
+      const { rows } = await client.query(
+        `SELECT id, email, user_id, account_table, expires_at, used
+         FROM password_reset_tokens
+         WHERE token = $1`,
+        [cleanToken],
+      );
+
+      if (rows.length === 0) {
+        return { valid: false, error: 'This password reset link is invalid, expired, or has already been used.' };
+      }
+
+      const row = rows[0];
+      if (row.used) {
+        return { valid: false, error: 'This password reset link has already been used.' };
+      }
+
+      const now = new Date();
+      if (new Date(row.expires_at) <= now) {
+        return { valid: false, error: 'This password reset link has expired. Please request a new one.' };
+      }
+
+      return { valid: true, email: row.email };
+    } finally {
+      client.release();
+    }
+  }
+
+  async resetPasswordWithToken(token: string, newPasswordPlain: string): Promise<boolean> {
+    const cleanToken = (token || '').trim();
+    if (!cleanToken) {
+      throw new Error('Reset token is required.');
+    }
+
+    // Validate password strength:
+    // Minimum 8 characters, at least 1 uppercase, 1 lowercase, 1 number, 1 special character
+    const strength = validatePasswordStrength(newPasswordPlain);
+    if (!strength.isValid) {
+      throw new Error(strength.errors.join(' '));
+    }
+
+    const client = await pool.connect();
+    try {
+      await this.initResetTokensTable(client);
+
+      const { rows } = await client.query(
+        `SELECT id, email, user_id, account_table, expires_at, used
+         FROM password_reset_tokens
+         WHERE token = $1`,
+        [cleanToken],
+      );
+
+      if (rows.length === 0 || rows[0].used || new Date(rows[0].expires_at) <= new Date()) {
+        throw new Error('This password reset link is invalid, expired, or has already been used.');
+      }
+
+      const tokenRecord = rows[0];
+      const email = tokenRecord.email;
+      const passwordHash = await hash(newPasswordPlain);
+
+      // Update password in user tables matching this email/id
+      let updated = false;
+
+      // 1. user_accounts
+      try {
+        const res = await client.query(
+          `UPDATE user_accounts SET password_hash = $1, updated_at = NOW() WHERE lower(username) = lower($2) RETURNING id`,
+          [passwordHash, email],
+        );
+        if (res.rowCount && res.rowCount > 0) updated = true;
+      } catch (_e) {}
+
+      // 2. admin_users
+      try {
+        const res = await client.query(
+          `UPDATE admin_users SET password_hash = $1, updated_at = NOW() WHERE lower(username) = lower($2) RETURNING id`,
+          [passwordHash, email],
+        );
+        if (res.rowCount && res.rowCount > 0) updated = true;
+      } catch (_e) {}
+
+      // 3. master_admin_users
+      try {
+        const res = await client.query(
+          `UPDATE master_admin_users SET password_hash = $1, updated_at = NOW() WHERE lower(email) = lower($2) RETURNING id`,
+          [passwordHash, email],
+        );
+        if (res.rowCount && res.rowCount > 0) updated = true;
+      } catch (_e) {}
+
+      // 4. tenant_admin_master_login
+      try {
+        const res = await client.query(
+          `UPDATE tenant_admin_master_login SET password_hash = $1, updated_at = NOW() WHERE lower(username) = lower($2) RETURNING id`,
+          [passwordHash, email],
+        );
+        if (res.rowCount && res.rowCount > 0) updated = true;
+      } catch (_e) {}
+
+      // 5. users
+      try {
+        const res = await client.query(
+          `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE lower(email) = lower($2) RETURNING id`,
+          [passwordHash, email],
+        );
+        if (res.rowCount && res.rowCount > 0) updated = true;
+      } catch (_e) {}
+
+      // Invalidate the reset token immediately after successful password reset
+      await client.query(
+        `UPDATE password_reset_tokens SET used = true WHERE id = $1`,
+        [tokenRecord.id],
+      );
+
+      // Invalidate any other active reset tokens for this email as well
+      await client.query(
+        `UPDATE password_reset_tokens SET used = true WHERE lower(email) = lower($1) AND used = false`,
+        [email],
+      );
+
+      return true;
     } finally {
       client.release();
     }

@@ -14,6 +14,8 @@ export const tenantRouter = Router();
 tenantRouter.post('/auth/login', TenantAuthController.login);
 tenantRouter.post('/auth/admin-login', TenantAuthController.adminLogin);
 tenantRouter.post('/auth/forgot-password', TenantAuthController.forgotPassword);
+tenantRouter.get('/auth/verify-reset-token', TenantAuthController.verifyResetToken);
+tenantRouter.post('/auth/verify-reset-token', TenantAuthController.verifyResetToken);
 tenantRouter.post('/auth/reset-password', TenantAuthController.resetPassword);
 
 // Any route below requires a valid tenant header to resolve the DB

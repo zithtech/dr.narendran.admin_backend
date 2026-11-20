@@ -77,6 +77,28 @@ export async function ensureSettingsTables(client?: any): Promise<void> {
 }
 
 export class SettingsService {
+  async getPublicBranding() {
+    await ensureSettingsTables();
+    const client = await pool.connect();
+    try {
+      const settingsRes = await client.query(
+        "SELECT key, value FROM app_settings WHERE key IN ('first_name', 'last_name', 'admin_full_name', 'logo_url')",
+      );
+      const settingsMap: Record<string, string> = {};
+      for (const row of settingsRes.rows) {
+        settingsMap[row.key] = row.value;
+      }
+      return {
+        firstName: settingsMap['first_name'] || '',
+        lastName: settingsMap['last_name'] || '',
+        fullName: settingsMap['admin_full_name'] || '',
+        logoUrl: settingsMap['logo_url'] || '',
+      };
+    } finally {
+      client.release();
+    }
+  }
+
   async getSettings(userId?: string) {
     await ensureSettingsTables();
     const client = await pool.connect();
@@ -190,7 +212,10 @@ export class SettingsService {
     }
   }
 
-  async updateProfile(userId: string | undefined, data: { firstName: string; lastName: string }) {
+  async updateProfile(
+    userId: string | undefined,
+    data: { firstName: string; lastName: string; logoUrl?: string | undefined },
+  ) {
     await ensureSettingsTables();
     const client = await pool.connect();
 
@@ -221,7 +246,62 @@ export class SettingsService {
         [fullName],
       );
 
-      // 2. Update user record across possible tables
+      // 2. Update logoUrl if provided
+      if (data.logoUrl !== undefined) {
+        const cleanLogo = data.logoUrl.trim();
+        if (cleanLogo === '') {
+          await client.query(`DELETE FROM app_settings WHERE key = 'logo_url'`);
+          if (userId) {
+            try {
+              await client.query(
+                `UPDATE admin_users SET logo_url = NULL, updated_at = NOW() WHERE id = $1`,
+                [userId],
+              );
+            } catch (_err) {}
+            try {
+              await client.query(
+                `UPDATE master_admin_users SET logo_url = NULL, updated_at = NOW() WHERE id = $1`,
+                [userId],
+              );
+            } catch (_err) {}
+            try {
+              await client.query(
+                `UPDATE user_accounts SET logo_url = NULL, updated_at = NOW() WHERE id = $1`,
+                [userId],
+              );
+            } catch (_err) {}
+          }
+        } else {
+          await client.query(
+            `INSERT INTO app_settings (key, value, updated_at)
+             VALUES ('logo_url', $1, NOW())
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+            [cleanLogo],
+          );
+          if (userId) {
+            try {
+              await client.query(
+                `UPDATE admin_users SET logo_url = $1, updated_at = NOW() WHERE id = $2`,
+                [cleanLogo, userId],
+              );
+            } catch (_err) {}
+            try {
+              await client.query(
+                `UPDATE master_admin_users SET logo_url = $1, updated_at = NOW() WHERE id = $2`,
+                [cleanLogo, userId],
+              );
+            } catch (_err) {}
+            try {
+              await client.query(
+                `UPDATE user_accounts SET logo_url = $1, updated_at = NOW() WHERE id = $2`,
+                [cleanLogo, userId],
+              );
+            } catch (_err) {}
+          }
+        }
+      }
+
+      // 3. Update user record across possible tables
       if (userId) {
         try {
           await client.query(
@@ -255,7 +335,42 @@ export class SettingsService {
         firstName: cleanFirst,
         lastName: cleanLast,
         fullName,
+        logoUrl: data.logoUrl !== undefined ? data.logoUrl.trim() : undefined,
         message: 'Profile updated successfully',
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteLogo(userId?: string) {
+    await ensureSettingsTables();
+    const client = await pool.connect();
+    try {
+      await client.query(`DELETE FROM app_settings WHERE key = 'logo_url'`);
+      if (userId) {
+        try {
+          await client.query(
+            `UPDATE admin_users SET logo_url = NULL, updated_at = NOW() WHERE id = $1`,
+            [userId],
+          );
+        } catch (_err) {}
+        try {
+          await client.query(
+            `UPDATE master_admin_users SET logo_url = NULL, updated_at = NOW() WHERE id = $1`,
+            [userId],
+          );
+        } catch (_err) {}
+        try {
+          await client.query(
+            `UPDATE user_accounts SET logo_url = NULL, updated_at = NOW() WHERE id = $1`,
+            [userId],
+          );
+        } catch (_err) {}
+      }
+      return {
+        logoUrl: '',
+        message: 'Logo reset to default system logo successfully',
       };
     } finally {
       client.release();

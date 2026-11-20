@@ -19,11 +19,15 @@ const upload = multer({
 
 export const settingsRouter = Router();
 
-// Require authenticated session for all settings endpoints
+// Public branding endpoint (accessible on login page before auth)
+settingsRouter.get('/public-branding', SettingsController.getPublicBranding);
+
+// Require authenticated session for all remaining settings endpoints
 settingsRouter.use(requireAuth);
 
 settingsRouter.get('/', SettingsController.getSettings);
 settingsRouter.get('/profile', SettingsController.getSettings);
 settingsRouter.put('/profile', SettingsController.updateProfile);
 settingsRouter.post('/logo', upload.single('logo'), SettingsController.uploadLogo);
+settingsRouter.delete('/logo', SettingsController.deleteLogo);
 

@@ -3,6 +3,16 @@ import type { Request, Response } from 'express';
 import { settingsService } from './settings.service.js';
 
 export class SettingsController {
+  static async getPublicBranding(_req: Request, res: Response): Promise<void> {
+    try {
+      const branding = await settingsService.getPublicBranding();
+      res.status(200).json(branding);
+    } catch (err: any) {
+      console.error('[SettingsController.getPublicBranding] Error:', err);
+      res.status(500).json({ error: 'Failed to retrieve public branding' });
+    }
+  }
+
   static async getSettings(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
@@ -17,7 +27,7 @@ export class SettingsController {
   static async updateProfile(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
-      const { firstName, lastName } = req.body;
+      const { firstName, lastName, logoUrl } = req.body;
 
       if (typeof firstName !== 'string' && typeof lastName !== 'string') {
         res.status(400).json({ error: 'First name or last name is required.' });
@@ -27,12 +37,24 @@ export class SettingsController {
       const result = await settingsService.updateProfile(userId, {
         firstName: firstName || '',
         lastName: lastName || '',
+        logoUrl: typeof logoUrl === 'string' ? logoUrl : undefined,
       });
 
       res.status(200).json(result);
     } catch (err: any) {
       console.error('[SettingsController.updateProfile] Error:', err);
       res.status(500).json({ error: 'Failed to update profile' });
+    }
+  }
+
+  static async deleteLogo(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      const result = await settingsService.deleteLogo(userId);
+      res.status(200).json(result);
+    } catch (err: any) {
+      console.error('[SettingsController.deleteLogo] Error:', err);
+      res.status(500).json({ error: 'Failed to reset logo' });
     }
   }
 

@@ -59,16 +59,36 @@ export async function ensureMedicalHistoryTables(client: any): Promise<void> {
   }
 }
 
+async function resolvePatientUuid(client: any, patientIdOrCode: string): Promise<string> {
+  if (!patientIdOrCode) return patientIdOrCode;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(patientIdOrCode);
+  if (isUuid) {
+    const { rows } = await client.query(
+      `SELECT id FROM patients WHERE id = $1 OR user_account_id = $1 LIMIT 1`,
+      [patientIdOrCode],
+    );
+    if (rows[0]?.id) return rows[0].id;
+    return patientIdOrCode;
+  }
+  const { rows } = await client.query(
+    `SELECT id FROM patients WHERE patient_id = $1 OR id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
+    [patientIdOrCode],
+  );
+  if (rows[0]?.id) return rows[0].id;
+  return patientIdOrCode;
+}
+
 export class PatientMedicalHistoryRepository {
   async getHistoriesByPatientId(patientId: string): Promise<PatientMedicalHistoryRecord[]> {
     const client = await pool.connect();
     try {
       await ensureMedicalHistoryTables(client);
+      const resolvedPatientId = await resolvePatientUuid(client, patientId);
       const { rows } = await client.query(
         `SELECT * FROM patient_medical_histories 
          WHERE patient_id = $1 
          ORDER BY recorded_date DESC, created_at DESC`,
-        [patientId],
+        [resolvedPatientId],
       );
       return rows;
     } finally {
@@ -94,12 +114,13 @@ export class PatientMedicalHistoryRepository {
     const client = await pool.connect();
     try {
       await ensureMedicalHistoryTables(client);
+      const resolvedPatientId = await resolvePatientUuid(client, patientId);
       const { rows } = await client.query(
         `SELECT * FROM patient_medical_histories 
          WHERE patient_id = $1 
          ORDER BY recorded_date DESC, created_at DESC 
          LIMIT 1`,
-        [patientId],
+        [resolvedPatientId],
       );
       return rows[0] || null;
     } finally {
@@ -115,6 +136,7 @@ export class PatientMedicalHistoryRepository {
     const client = await pool.connect();
     try {
       await ensureMedicalHistoryTables(client);
+      const resolvedPatientId = await resolvePatientUuid(client, patientId);
       const recordedDate = data.recorded_date || new Date().toISOString().split('T')[0];
       const recordedByName =
         data.recorded_by_name || user?.fullName || user?.email || 'Attending Physician';
@@ -127,11 +149,13 @@ export class PatientMedicalHistoryRepository {
           AND COALESCE(notes, '') = COALESCE($3, '')
         LIMIT 1
       `;
-      const existing = await client.query(checkSql, [patientId, recordedDate, data.notes || null]);
+      const existing = await client.query(checkSql, [resolvedPatientId, recordedDate, data.notes || null]);
       if (existing.rows.length > 0) {
         // Update existing instead of creating accidental duplicates
         return await this.updateHistory(existing.rows[0].id, data, user);
       }
+
+      const lifeHistory = data.lifestyle_history ?? data.lifecycle_history ?? {};
 
       const { rows } = await client.query(
         `INSERT INTO patient_medical_histories (
@@ -141,7 +165,7 @@ export class PatientMedicalHistoryRepository {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
         RETURNING *`,
         [
-          patientId,
+          resolvedPatientId,
           recordedDate,
           recordedById,
           recordedByName,
@@ -149,7 +173,7 @@ export class PatientMedicalHistoryRepository {
           JSON.stringify(data.previous_medical_history || {}),
           JSON.stringify(data.family_medical_history || {}),
           JSON.stringify(data.reproductive_history || {}),
-          JSON.stringify(data.lifestyle_history || {}),
+          JSON.stringify(lifeHistory),
           JSON.stringify(data.current_medical_info || {}),
         ],
       );
@@ -178,7 +202,7 @@ export class PatientMedicalHistoryRepository {
           params.push(String(cmi.temperature));
         }
         if (updates.length > 0) {
-          params.push(patientId);
+          params.push(resolvedPatientId);
           await client.query(
             `UPDATE patients SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${pIdx}`,
             params,
@@ -211,23 +235,38 @@ export class PatientMedicalHistoryRepository {
           ? data.recorded_by_name
           : user?.fullName || current.recorded_by_name;
       const notes = data.notes !== undefined ? data.notes : current.notes;
+      const parseObj = (val: any) => {
+        if (typeof val === 'string') {
+          try { return JSON.parse(val); } catch { return {}; }
+        }
+        return typeof val === 'object' && val !== null ? val : {};
+      };
+
       const prevHistory =
-        data.previous_medical_history !== undefined
-          ? data.previous_medical_history
+        data.previous_medical_history !== undefined && data.previous_medical_history !== null
+          ? { ...parseObj(current.previous_medical_history), ...parseObj(data.previous_medical_history) }
           : current.previous_medical_history;
       const famHistory =
-        data.family_medical_history !== undefined
-          ? data.family_medical_history
+        data.family_medical_history !== undefined && data.family_medical_history !== null
+          ? { ...parseObj(current.family_medical_history), ...parseObj(data.family_medical_history) }
           : current.family_medical_history;
       const repHistory =
-        data.reproductive_history !== undefined
-          ? data.reproductive_history
+        data.reproductive_history !== undefined && data.reproductive_history !== null
+          ? { ...parseObj(current.reproductive_history), ...parseObj(data.reproductive_history) }
           : current.reproductive_history;
+      const rawLife =
+        data.lifestyle_history !== undefined && data.lifestyle_history !== null
+          ? data.lifestyle_history
+          : data.lifecycle_history !== undefined && data.lifecycle_history !== null
+          ? data.lifecycle_history
+          : undefined;
       const lifeHistory =
-        data.lifestyle_history !== undefined ? data.lifestyle_history : current.lifestyle_history;
+        rawLife !== undefined
+          ? { ...parseObj(current.lifestyle_history), ...parseObj(rawLife) }
+          : current.lifestyle_history;
       const curMedInfo =
-        data.current_medical_info !== undefined
-          ? data.current_medical_info
+        data.current_medical_info !== undefined && data.current_medical_info !== null
+          ? { ...parseObj(current.current_medical_info), ...parseObj(data.current_medical_info) }
           : current.current_medical_info;
 
       const { rows } = await client.query(
@@ -309,8 +348,9 @@ export class PatientMedicalHistoryRepository {
     const client = await pool.connect();
     try {
       await ensureMedicalHistoryTables(client);
+      const resolvedPatientId = await resolvePatientUuid(client, patientId);
       let sql = `SELECT * FROM patient_medical_documents WHERE patient_id = $1`;
-      const params: any[] = [patientId];
+      const params: any[] = [resolvedPatientId];
       if (documentType && documentType.trim() && documentType.toUpperCase() !== 'ALL') {
         sql += ` AND document_type = $2`;
         params.push(documentType.trim());
@@ -345,6 +385,7 @@ export class PatientMedicalHistoryRepository {
     const client = await pool.connect();
     try {
       await ensureMedicalHistoryTables(client);
+      const resolvedPatientId = await resolvePatientUuid(client, patientId);
       const { rows } = await client.query(
         `INSERT INTO patient_medical_documents (
           patient_id, medical_history_id, document_type, title, file_name,
@@ -353,7 +394,7 @@ export class PatientMedicalHistoryRepository {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
         RETURNING *`,
         [
-          patientId,
+          resolvedPatientId,
           docData.medical_history_id || null,
           docData.document_type,
           docData.title,

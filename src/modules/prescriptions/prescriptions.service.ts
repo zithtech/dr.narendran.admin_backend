@@ -75,6 +75,7 @@ export interface FormattedPrescription {
   id: string;
   prescription_number?: string | undefined;
   patient_id?: string | undefined;
+  patient_code?: string | undefined;
   patient_name?: string | undefined;
   patient_phone?: string | undefined;
   patient_gender?: string | undefined;
@@ -377,7 +378,7 @@ export class PrescriptionsService {
         const term = `%${filters.search.trim()}%`;
         const rxColFilter = hasRxCol ? ` OR p.prescription_number ILIKE $${paramIdx}` : '';
         whereClauses.push(
-          `(COALESCE(pat.name, appt.patient_name, '') ILIKE $${paramIdx} OR COALESCE(pat.phone, appt.patient_phone, '') ILIKE $${paramIdx} OR d.name ILIKE $${paramIdx} OR p.additional_notes ILIKE $${paramIdx} OR p.id::text ILIKE $${paramIdx}${rxColFilter})`
+          `(COALESCE(pat.name, appt.patient_name, '') ILIKE $${paramIdx} OR COALESCE(pat.patient_id, pat_appt.patient_id, '') ILIKE $${paramIdx} OR COALESCE(pat.phone, appt.patient_phone, '') ILIKE $${paramIdx} OR d.name ILIKE $${paramIdx} OR p.additional_notes ILIKE $${paramIdx} OR p.id::text ILIKE $${paramIdx}${rxColFilter})`
         );
         params.push(term);
         paramIdx++;
@@ -404,7 +405,22 @@ export class PrescriptionsService {
           p.follow_up_days,
           p.follow_up_date,
           p.follow_up_status,
-          COALESCE(NULLIF(pat.name, ''), NULLIF(pat_appt.name, ''), appt.patient_name, 'Patient') as patient_name,
+          COALESCE(
+            CASE 
+              WHEN NULLIF(pat.patient_id, '') IS NOT NULL AND NULLIF(pat.name, '') IS NOT NULL 
+                THEN pat.name || ' (' || pat.patient_id || ')'
+              WHEN NULLIF(pat.name, '') IS NOT NULL 
+                THEN pat.name
+              WHEN NULLIF(pat_appt.patient_id, '') IS NOT NULL AND NULLIF(pat_appt.name, '') IS NOT NULL 
+                THEN pat_appt.name || ' (' || pat_appt.patient_id || ')'
+              WHEN NULLIF(pat_appt.name, '') IS NOT NULL 
+                THEN pat_appt.name
+              WHEN appt.patient_name IS NOT NULL 
+                THEN appt.patient_name
+              ELSE 'Patient'
+            END
+          ) as patient_name,
+          COALESCE(pat.patient_id, pat_appt.patient_id) as patient_code,
           COALESCE(NULLIF(pat.phone, ''), NULLIF(pat_appt.phone, ''), appt.patient_phone) as patient_phone,
           COALESCE(pat.gender, pat_appt.gender) as patient_gender,
           COALESCE(pat.date_of_birth, pat_appt.date_of_birth) as patient_dob,
@@ -575,6 +591,7 @@ export class PrescriptionsService {
           id: r.id,
           prescription_number: r.prescription_number || this.deriveFallbackPrescriptionNumber(r.id, r.hospital_name, r.branch_name),
           patient_id: r.patient_id || undefined,
+          patient_code: r.patient_code || undefined,
           patient_name: r.patient_name || undefined,
           patient_phone: r.patient_phone || undefined,
           patient_gender: r.patient_gender || undefined,
@@ -635,7 +652,22 @@ export class PrescriptionsService {
           p.follow_up_days,
           p.follow_up_date,
           p.follow_up_status,
-          COALESCE(NULLIF(pat.name, ''), NULLIF(pat_appt.name, ''), appt.patient_name, 'Patient') as patient_name,
+          COALESCE(
+            CASE 
+              WHEN NULLIF(pat.patient_id, '') IS NOT NULL AND NULLIF(pat.name, '') IS NOT NULL 
+                THEN pat.name || ' (' || pat.patient_id || ')'
+              WHEN NULLIF(pat.name, '') IS NOT NULL 
+                THEN pat.name
+              WHEN NULLIF(pat_appt.patient_id, '') IS NOT NULL AND NULLIF(pat_appt.name, '') IS NOT NULL 
+                THEN pat_appt.name || ' (' || pat_appt.patient_id || ')'
+              WHEN NULLIF(pat_appt.name, '') IS NOT NULL 
+                THEN pat_appt.name
+              WHEN appt.patient_name IS NOT NULL 
+                THEN appt.patient_name
+              ELSE 'Patient'
+            END
+          ) as patient_name,
+          COALESCE(pat.patient_id, pat_appt.patient_id) as patient_code,
           COALESCE(NULLIF(pat.phone, ''), NULLIF(pat_appt.phone, ''), appt.patient_phone) as patient_phone,
           COALESCE(pat.gender, pat_appt.gender) as patient_gender,
           COALESCE(pat.date_of_birth, pat_appt.date_of_birth) as patient_dob,
@@ -789,6 +821,7 @@ export class PrescriptionsService {
         id: r.id,
         prescription_number: r.prescription_number || this.deriveFallbackPrescriptionNumber(r.id, r.hospital_name, r.branch_name),
         patient_id: r.patient_id || undefined,
+        patient_code: r.patient_code || undefined,
         patient_name: r.patient_name || undefined,
         patient_phone: r.patient_phone || undefined,
         patient_gender: r.patient_gender || undefined,
@@ -871,7 +904,7 @@ export class PrescriptionsService {
 
       // Check patient exists
       const patRes = await client.query(
-        `SELECT id, name, phone, gender, date_of_birth, user_account_id,
+        `SELECT id, name, patient_id, phone, gender, date_of_birth, user_account_id,
                 blood_pressure, blood_sugar, body_temperature, height_cm, weight_kg, blood_group, custom_vitals
          FROM patients WHERE id = $1 LIMIT 1`,
         [resolvedPatientId]
@@ -880,7 +913,7 @@ export class PrescriptionsService {
       if (!patientMeta) {
         // Fallback: see if resolvedPatientId is a user_account_id or user_id
         const patByUa = await client.query(
-          `SELECT id, name, phone, gender, date_of_birth, user_account_id,
+          `SELECT id, name, patient_id, phone, gender, date_of_birth, user_account_id,
                   blood_pressure, blood_sugar, body_temperature, height_cm, weight_kg, blood_group, custom_vitals
            FROM patients WHERE user_account_id = $1 OR user_id = $1 LIMIT 1`,
           [resolvedPatientId]
@@ -1036,8 +1069,10 @@ export class PrescriptionsService {
               clinic_address: docMeta.clinic_address || '',
             },
             patient: {
-              name: patientMeta.name || 'Patient',
-              patient_id: resolvedPatientId ? String(resolvedPatientId).slice(0, 8).toUpperCase() : '',
+              name: (patientMeta.patient_id && patientMeta.name && !patientMeta.name.includes(patientMeta.patient_id))
+                ? `${patientMeta.name} (${patientMeta.patient_id})`
+                : (patientMeta.name || 'Patient'),
+              patient_id: patientMeta.patient_id || (resolvedPatientId ? String(resolvedPatientId).slice(0, 8).toUpperCase() : ''),
               phone: patientMeta.phone || '',
               gender: patientMeta.gender || '',
               date_of_birth: patientMeta.date_of_birth ? new Date(patientMeta.date_of_birth).toLocaleDateString('en-GB') : '',
@@ -1405,8 +1440,10 @@ export class PrescriptionsService {
           clinic_address: docMeta.clinic_address || '',
         },
         patient: {
-          name: rx.patient_name || 'Patient',
-          patient_id: rx.patient_id ? String(rx.patient_id).slice(0, 8).toUpperCase() : '',
+          name: (rx.patient_code && rx.patient_name && !rx.patient_name.includes(rx.patient_code))
+            ? `${rx.patient_name} (${rx.patient_code})`
+            : (rx.patient_name || 'Patient'),
+          patient_id: rx.patient_code || (rx.patient_id ? String(rx.patient_id).slice(0, 8).toUpperCase() : ''),
           phone: rx.patient_phone || '',
           gender: rx.patient_gender || '',
           date_of_birth: rx.patient_dob ? new Date(rx.patient_dob).toLocaleDateString('en-GB') : '',

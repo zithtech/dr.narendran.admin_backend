@@ -718,6 +718,7 @@ export class MedicalTimelineService {
 
     const patientHeader: PatientTimelineHeader = {
       id: patientProfile?.id || primaryId,
+      patient_id: patientProfile?.patientId || null,
       name: patientProfile?.name || 'Patient',
       age: calculateAge(patientProfile?.dateOfBirth),
       gender: patientProfile?.gender || null,

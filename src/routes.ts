@@ -14,6 +14,7 @@ import { labServicesRouter } from '@/modules/lab-services/lab-services.routes.js
 import { labsRouter } from '@/modules/labs/labs.routes.js';
 import { labTestsRouter } from '@/modules/labTests/labTests.routes.js';
 import { linkedMedicalsRouter } from '@/modules/linked_medicals/linked_medicals.routes.js';
+import { referralsRouter } from '@/modules/referrals/referrals.routes.js';
 import { masterRouter } from '@/modules/master/master.routes.js';
 import { medicineStrengthsRouter } from '@/modules/medicine_strengths/medicine_strengths.routes.js';
 import { medicinesRouter } from '@/modules/medicines/medicines.routes.js';
@@ -73,6 +74,8 @@ apiRouter.use('/labs', labsRouter);
 apiRouter.use('/lab-services', labServicesRouter);
 apiRouter.use('/lab-tests', labTestsRouter);
 apiRouter.use('/linked-medicals', linkedMedicalsRouter);
+apiRouter.use('/referrals', referralsRouter);
+apiRouter.use('/referral', referralsRouter);
 apiRouter.use('/support', supportRouter);
 apiRouter.use('/doctor/support', supportRouter);
 apiRouter.use('/doctor-support', supportRouter);

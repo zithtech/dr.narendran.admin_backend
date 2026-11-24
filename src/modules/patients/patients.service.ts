@@ -52,6 +52,9 @@ export interface CreatePatientInput {
   emergency_contacts?: any;
   profile_image_url?: string | null | undefined;
   is_active?: boolean | null | undefined;
+  referred_by?: string | null | undefined;
+  referral_id?: string | null | undefined;
+  referral_doctor_id?: string | null | undefined;
 }
 
 export interface UpdatePatientInput extends CreatePatientInput {
@@ -76,7 +79,10 @@ async function ensurePatientColumns(client: any): Promise<void> {
         ADD COLUMN IF NOT EXISTS blood_pressure VARCHAR(50),
         ADD COLUMN IF NOT EXISTS blood_sugar VARCHAR(50),
         ADD COLUMN IF NOT EXISTS body_temperature VARCHAR(50),
-        ADD COLUMN IF NOT EXISTS custom_vitals JSONB DEFAULT '[]'::jsonb;
+        ADD COLUMN IF NOT EXISTS custom_vitals JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS referred_by VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS referral_id VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS referral_doctor_id VARCHAR(100);
 
       DO $$
       DECLARE
@@ -182,11 +188,13 @@ export class PatientsService {
           status, height_cm, weight_kg, blood_group, marital_status, emergency_contacts, profile_image_url, is_active,
           blood_pressure, blood_sugar, body_temperature, custom_vitals,
           patient_id,
+          referred_by, referral_id, referral_doctor_id,
           created_at, updated_at
         ) 
          VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
           COALESCE($28, 'PA_' || LPAD(nextval('patient_id_seq')::TEXT, 3, '0')),
+          $29, $30, $31,
           NOW(), NOW()
         ) RETURNING *`,
         [
@@ -218,6 +226,9 @@ export class PatientsService {
           data.body_temperature || null,
           data.custom_vitals ? JSON.stringify(data.custom_vitals) : '[]',
           data.patient_id || null,
+          data.referred_by || null,
+          data.referral_id || null,
+          data.referral_doctor_id || null,
         ],
       );
       if (rows[0]?.profile_image_url) {
@@ -247,8 +258,9 @@ export class PatientsService {
              city = $13, state = $14, pincode = $15, status = $16, height_cm = $17, weight_kg = $18, 
              blood_group = $19, marital_status = $20, emergency_contacts = $21, profile_image_url = $22, 
              is_active = $23, blood_pressure = $24, blood_sugar = $25, body_temperature = $26, custom_vitals = $27,
+             referred_by = $28, referral_id = $29, referral_doctor_id = $30,
              updated_at = NOW() 
-         WHERE id = $28 RETURNING *`,
+         WHERE id = $31 RETURNING *`,
         [
           data.user_account_id || null,
           data.hospital_id,
@@ -277,6 +289,9 @@ export class PatientsService {
           data.blood_sugar || null,
           data.body_temperature || null,
           data.custom_vitals ? JSON.stringify(data.custom_vitals) : '[]',
+          data.referred_by || null,
+          data.referral_id || null,
+          data.referral_doctor_id || null,
           data.id,
         ],
       );

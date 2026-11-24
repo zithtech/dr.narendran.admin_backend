@@ -1347,7 +1347,7 @@ export class LabPortalService {
           d.specialization as doctor_specialization,
           COALESCE(pt.name, appt.patient_name, 'Patient') as patient_name,
           COALESCE(pt.phone, appt.patient_phone) as patient_phone,
-          COALESCE(pt.email, appt.patient_email) as patient_email,
+          pt.email as patient_email,
           pt.gender as patient_gender,
           pt.date_of_birth as patient_dob,
           COALESCE(lt.test_type, 'Diagnostic Investigation') as test_category,

@@ -4,6 +4,7 @@ export interface PreviousDisease {
   treatment_details?: string | null;
   current_status?: string | null; // 'Active' | 'Resolved' | 'In Remission' | 'Under Control' | 'Unknown'
   remarks?: string | null;
+  medications?: Medication[];
 }
 
 export interface Surgery {

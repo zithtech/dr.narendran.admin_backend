@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 
 import { requireAuth } from "@/http/middleware/authenticate.js";
 import {
@@ -48,6 +48,7 @@ prescriptionsRouter.get(
 prescriptionsRouter.post("/", requireAuth, requirePermission("PRESCRIPTIONS", "create"), PrescriptionsController.create);
 prescriptionsRouter.put("/:id", requireAuth, requirePermission("PRESCRIPTIONS", "update"), PrescriptionsController.update);
 
+prescriptionsRouter.post("/render-pdf", express.json({ limit: "15mb" }), PrescriptionsController.renderHtmlToPdf);
 prescriptionsRouter.get("/:id/pdf", PrescriptionsController.downloadPdf);
 prescriptionsRouter.get("/:id/html", PrescriptionsController.downloadHtml);
 prescriptionsRouter.get(

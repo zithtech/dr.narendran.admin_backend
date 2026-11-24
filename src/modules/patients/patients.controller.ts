@@ -57,6 +57,10 @@ export const PatientsController = {
         emergency_contacts: data.emergency_contacts || null,
         profile_image_url: data.profile_image_url || null,
         is_active: data.is_active !== undefined ? data.is_active : true,
+        referred_by: data.referred_by || null,
+        referral_id: data.referral_id || null,
+        referral_doctor_id: data.referral_doctor_id || null,
+        alliance_doctor_id: data.alliance_doctor_id || null,
       };
       const patient = await patientsService.createPatient(cleanData);
       res.status(201).json(patient);
@@ -108,6 +112,10 @@ export const PatientsController = {
         emergency_contacts: data.emergency_contacts || null,
         profile_image_url: data.profile_image_url || null,
         is_active: data.is_active !== undefined ? data.is_active : true,
+        referred_by: data.referred_by || null,
+        referral_id: data.referral_id || null,
+        referral_doctor_id: data.referral_doctor_id || null,
+        alliance_doctor_id: data.alliance_doctor_id || null,
       };
       const patient = await patientsService.updatePatient({id, ...cleanData});
       if (!patient) {

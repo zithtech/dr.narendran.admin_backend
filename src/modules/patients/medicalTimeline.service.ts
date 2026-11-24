@@ -638,7 +638,7 @@ export class MedicalTimelineService {
     // Active conditions from diagnoses and basic_medical_info
     const basicMedical =
       typeof patientProfile?.basicMedicalInfo === 'object' &&
-      patientProfile.basicMedicalInfo !== null
+        patientProfile.basicMedicalInfo !== null
         ? (patientProfile.basicMedicalInfo as Record<string, unknown>)
         : {};
 
@@ -687,27 +687,27 @@ export class MedicalTimelineService {
         prescriptions.filter((p) => p.prescriptionUrl || p.imageUrl).length,
       last_consultation: lastCompleted
         ? {
-            id: lastCompleted.id,
-            date: toDateKey(lastCompleted.scheduledStart),
-            doctor: lastCompleted.doctorName
-              ? `Dr. ${lastCompleted.doctorName.replace(/^Dr\.\s*/i, '')}`
-              : 'Dr. S. Narendran',
-            diagnosis: lastCompleted.diagnosis || null,
-          }
+          id: lastCompleted.id,
+          date: toDateKey(lastCompleted.scheduledStart),
+          doctor: lastCompleted.doctorName
+            ? `Dr. ${lastCompleted.doctorName.replace(/^Dr\.\s*/i, '')}`
+            : 'Dr. S. Narendran',
+          diagnosis: lastCompleted.diagnosis || null,
+        }
         : null,
       upcoming_follow_up: upcomingFollowUp
         ? {
-            id: upcomingFollowUp.id,
-            date: toDateKey(upcomingFollowUp.scheduledStart),
-            time:
-              toIsoString(upcomingFollowUp.scheduledStart)
-                .split('T')[1]
-                ?.slice(0, 5) || '',
-            doctor: upcomingFollowUp.doctorName
-              ? `Dr. ${upcomingFollowUp.doctorName.replace(/^Dr\.\s*/i, '')}`
-              : 'Dr. S. Narendran',
-            purpose: upcomingFollowUp.purpose || 'Follow-up Consultation',
-          }
+          id: upcomingFollowUp.id,
+          date: toDateKey(upcomingFollowUp.scheduledStart),
+          time:
+            toIsoString(upcomingFollowUp.scheduledStart)
+              .split('T')[1]
+              ?.slice(0, 5) || '',
+          doctor: upcomingFollowUp.doctorName
+            ? `Dr. ${upcomingFollowUp.doctorName.replace(/^Dr\.\s*/i, '')}`
+            : 'Dr. S. Narendran',
+          purpose: upcomingFollowUp.purpose || 'Follow-up Consultation',
+        }
         : null,
     };
 
@@ -718,7 +718,9 @@ export class MedicalTimelineService {
 
     const patientHeader: PatientTimelineHeader = {
       id: patientProfile?.id || primaryId,
-      patient_id: patientProfile?.patientId || null,
+      patient_id: patientProfile?.patientId || patientProfile?.patientCode || null,
+      patient_code: patientProfile?.patientCode || patientProfile?.patientId || null,
+      legacy_patient_code: patientProfile?.legacyPatientCode || null,
       name: patientProfile?.name || 'Patient',
       age: calculateAge(patientProfile?.dateOfBirth),
       gender: patientProfile?.gender || null,

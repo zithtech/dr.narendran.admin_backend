@@ -48,6 +48,9 @@ async function signProfileUrl(url?: string | null): Promise<string | null> {
 
 export interface AdminPatientListItem {
   id: string;
+  patient_id?: string | null;
+  patient_code?: string | null;
+  legacy_patient_code?: string | null;
   user_account_id: string | null;
   hospital_id: string;
   hospital_name: string | null;
@@ -97,6 +100,9 @@ export class PatientTimelinesService {
         p.name ILIKE $${values.length} OR 
         p.phone ILIKE $${values.length} OR 
         p.email ILIKE $${values.length} OR 
+        p.patient_code ILIKE $${values.length} OR 
+        p.patient_id ILIKE $${values.length} OR 
+        p.legacy_patient_code ILIKE $${values.length} OR 
         p.id::text ILIKE $${values.length}
       )`);
     }
@@ -144,6 +150,9 @@ export class PatientTimelinesService {
 
     const dataSql = `
       SELECT p.*,
+             COALESCE(p.patient_code, p.patient_id) AS patient_code,
+             COALESCE(p.patient_code, p.patient_id) AS patient_id,
+             p.legacy_patient_code,
              h.name AS hospital_name,
              b.name AS branch_name
       FROM patients p
@@ -161,6 +170,9 @@ export class PatientTimelinesService {
       const signedUrl = await signProfileUrl(row.profile_image_url);
       patients.push({
         id: row.id,
+        patient_id: row.patient_id || row.patient_code || null,
+        patient_code: row.patient_code || row.patient_id || null,
+        legacy_patient_code: row.legacy_patient_code || null,
         user_account_id: row.user_account_id,
         hospital_id: row.hospital_id,
         hospital_name: row.hospital_name || null,

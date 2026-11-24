@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const patientSchema = z.object({
   patient_id: z.string().trim().optional().nullable(),
+  patient_code: z.string().trim().optional().nullable(),
   user_account_id: z.union([z.string().uuid('Invalid user account ID'), z.literal(''), z.null()]).optional().nullable(),
   hospital_id: z.string().uuid('Invalid hospital ID'),
   branch_id: z.union([z.string().uuid('Invalid branch ID'), z.literal(''), z.null()]).optional().nullable(),
@@ -135,3 +136,14 @@ export const patientSchema = z.object({
 
 export type PatientInput = z.infer<typeof patientSchema>;
 
+export const patientSettingsUpdateSchema = z.object({
+  hospital_id: z.string().uuid('Invalid hospital ID'),
+  prefix: z
+    .string()
+    .trim()
+    .length(3, 'Prefix must contain exactly three alphabetic characters')
+    .regex(/^[a-zA-Z]{3}$/, 'Prefix must contain only alphabetic characters')
+    .transform((val) => val.toUpperCase()),
+});
+
+export type PatientSettingsUpdateInput = z.infer<typeof patientSettingsUpdateSchema>;

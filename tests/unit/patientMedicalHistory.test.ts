@@ -171,21 +171,21 @@ describe('Patient Medical History Schemas', () => {
 
       const parsed = createPatientMedicalHistorySchema.parse(payload);
       expect(parsed.recorded_date).toBe('2026-11-17');
-      expect(parsed.previous_medical_history.chronic_diseases).toContain('Type 2 Diabetes');
-      expect(parsed.previous_medical_history.surgeries?.length).toBe(1);
-      expect(parsed.family_medical_history.members?.length).toBe(2);
-      expect(parsed.reproductive_history.is_applicable).toBe(true);
-      expect(parsed.current_medical_info.pain_level).toBe(3);
+      expect(parsed.previous_medical_history?.chronic_diseases).toContain('Type 2 Diabetes');
+      expect(parsed.previous_medical_history?.surgeries?.length).toBe(1);
+      expect(parsed.family_medical_history?.members?.length).toBe(2);
+      expect(parsed.reproductive_history?.is_applicable).toBe(true);
+      expect(parsed.current_medical_info?.pain_level).toBe(3);
     });
 
     it('defaults optional nested structures when omitted', () => {
       const minimalPayload = {};
       const parsed = createPatientMedicalHistorySchema.parse(minimalPayload);
 
-      expect(parsed.previous_medical_history.chronic_diseases).toEqual([]);
-      expect(parsed.previous_medical_history.previous_diseases).toEqual([]);
-      expect(parsed.family_medical_history.members).toEqual([]);
-      expect(parsed.reproductive_history.is_applicable).toBe(true);
+      expect(parsed.previous_medical_history?.chronic_diseases).toEqual([]);
+      expect(parsed.previous_medical_history?.previous_diseases).toEqual([]);
+      expect(parsed.family_medical_history?.members).toEqual([]);
+      expect(parsed.reproductive_history?.is_applicable).toBe(true);
     });
 
     it('validates partial update schema', () => {

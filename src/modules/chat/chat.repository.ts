@@ -77,12 +77,12 @@ export async function findConversationById(
               c.id as conversation_id,
               m.message as last_message,
               m.sent_at as last_message_at,
-              COALESCE(p.name, pp.full_name, 'Patient') as patient_name,
+              COALESCE(p.name, pp.full_name, au_p.username, mau_p.name, u.username, 'Patient') as patient_name,
               COALESCE(p.phone, usr.mobile_number, u.username, '') as patient_phone,
               COALESCE(p.profile_image_url, pp.profile_image_url, '') as patient_profile_image,
               COALESCE(p.profile_image_url, pp.profile_image_url, '') as patient_avatar,
-              COALESCE(d.name, dp.full_name, 'Doctor') as doctor_name,
-              COALESCE(d.specialization, dp.specialty, 'General Medicine') as specialization,
+              COALESCE(d.name, dp.full_name, au_d.username, mau_d.name, u_d.username, 'Doctor') as doctor_name,
+              COALESCE(d.specialization, dp.specialty, au_d.role, mau_d.role, 'General Medicine') as specialization,
               COALESCE(d.profile_image_url, dp.profile_image_url, '') as doctor_profile_image,
               COALESCE(d.profile_image_url, dp.profile_image_url, '') as doctor_avatar
        FROM chat_conversations c
@@ -91,10 +91,70 @@ export async function findConversationById(
        LEFT JOIN patient_profiles pp ON (p.user_account_id IS NOT NULL AND pp.user_id = p.user_account_id) OR (c.patient_id = pp.user_id)
        LEFT JOIN user_accounts u ON (p.user_account_id = u.id OR c.patient_id = u.id)
        LEFT JOIN users usr ON (c.patient_id = usr.id OR (p.user_id IS NOT NULL AND p.user_id = usr.id))
+       LEFT JOIN admin_users au_p ON (c.patient_id = au_p.id)
+       LEFT JOIN master_admin_users mau_p ON (c.patient_id = mau_p.id)
        LEFT JOIN doctors d ON (c.doctor_id = d.id OR c.doctor_id = d.user_account_id)
        LEFT JOIN doctor_profiles dp ON (d.user_account_id IS NOT NULL AND dp.user_id = d.user_account_id) OR (c.doctor_id = dp.user_id)
+       LEFT JOIN user_accounts u_d ON (d.user_account_id = u_d.id OR c.doctor_id = u_d.id)
+       LEFT JOIN admin_users au_d ON (c.doctor_id = au_d.id)
+       LEFT JOIN master_admin_users mau_d ON (c.doctor_id = mau_d.id)
        WHERE c.id = $1`,
       [id],
+    );
+    return rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findConversationByParticipants(
+  participantA: string | string[],
+  participantB: string | string[],
+): Promise<ChatConversation | null> {
+  await ensureChatTables();
+  const client = await pool.connect();
+  const idsA = Array.isArray(participantA) ? participantA : [participantA];
+  const idsB = Array.isArray(participantB) ? participantB : [participantB];
+
+  try {
+    const { rows } = await client.query(
+      `SELECT c.*,
+              c.id as conversation_id,
+              m.message as last_message,
+              m.sent_at as last_message_at
+       FROM chat_conversations c
+       LEFT JOIN chat_messages m ON c.last_message_id = m.id
+       WHERE (
+         (
+           (c.patient_id = ANY($1::uuid[]) OR c.patient_id IN (
+             SELECT p.id FROM patients p WHERE p.user_account_id = ANY($1::uuid[]) OR p.id = ANY($1::uuid[]) OR (p.user_id IS NOT NULL AND p.user_id = ANY($1::uuid[]))
+           ) OR c.patient_id IN (
+             SELECT d.id FROM doctors d WHERE d.user_account_id = ANY($1::uuid[]) OR d.id = ANY($1::uuid[])
+           ))
+           AND
+           (c.doctor_id = ANY($2::uuid[]) OR c.doctor_id IN (
+             SELECT d.id FROM doctors d WHERE d.user_account_id = ANY($2::uuid[]) OR d.id = ANY($2::uuid[])
+           ) OR c.doctor_id IN (
+             SELECT p.id FROM patients p WHERE p.user_account_id = ANY($2::uuid[]) OR p.id = ANY($2::uuid[]) OR (p.user_id IS NOT NULL AND p.user_id = ANY($2::uuid[]))
+           ))
+         )
+         OR
+         (
+           (c.patient_id = ANY($2::uuid[]) OR c.patient_id IN (
+             SELECT p.id FROM patients p WHERE p.user_account_id = ANY($2::uuid[]) OR p.id = ANY($2::uuid[]) OR (p.user_id IS NOT NULL AND p.user_id = ANY($2::uuid[]))
+           ) OR c.patient_id IN (
+             SELECT d.id FROM doctors d WHERE d.user_account_id = ANY($2::uuid[]) OR d.id = ANY($2::uuid[])
+           ))
+           AND
+           (c.doctor_id = ANY($1::uuid[]) OR c.doctor_id IN (
+             SELECT d.id FROM doctors d WHERE d.user_account_id = ANY($1::uuid[]) OR d.id = ANY($1::uuid[])
+           ) OR c.doctor_id IN (
+             SELECT p.id FROM patients p WHERE p.user_account_id = ANY($1::uuid[]) OR p.id = ANY($1::uuid[]) OR (p.user_id IS NOT NULL AND p.user_id = ANY($1::uuid[]))
+           ))
+         )
+       )
+       LIMIT 1`,
+      [idsA, idsB],
     );
     return rows[0] || null;
   } finally {
@@ -106,48 +166,21 @@ export async function findConversationByPatientDoctor(
   patientIdOrIds: string | string[],
   doctorIdOrIds: string | string[],
 ): Promise<ChatConversation | null> {
-  await ensureChatTables();
-  const client = await pool.connect();
-  const patientIds = Array.isArray(patientIdOrIds) ? patientIdOrIds : [patientIdOrIds];
-  const doctorIds = Array.isArray(doctorIdOrIds) ? doctorIdOrIds : [doctorIdOrIds];
+  const conv = await findConversationByParticipants(patientIdOrIds, doctorIdOrIds);
+  if (!conv) return null;
 
+  const client = await pool.connect();
   try {
-    const { rows } = await client.query(
-      `SELECT c.*,
-              c.id as conversation_id,
-              m.message as last_message,
-              (
-                SELECT COUNT(*)::int
-                FROM chat_messages unread_m
-                WHERE unread_m.conversation_id = c.id
-                  AND unread_m.sender_type = 'DOCTOR'
-                  AND unread_m.status != 'READ'
-              ) as unread_count
-       FROM chat_conversations c
-       LEFT JOIN chat_messages m ON c.last_message_id = m.id
-       WHERE (
-         c.patient_id = ANY($1::uuid[])
-         OR c.patient_id IN (
-           SELECT p.id FROM patients p
-           WHERE p.user_account_id = ANY($1::uuid[]) OR p.id = ANY($1::uuid[]) OR (p.user_id IS NOT NULL AND p.user_id = ANY($1::uuid[]))
-         )
-         OR c.patient_id IN (
-           SELECT pp.user_id FROM patient_profiles pp WHERE pp.user_id = ANY($1::uuid[])
-         )
-       ) AND (
-         c.doctor_id = ANY($2::uuid[])
-         OR c.doctor_id IN (
-           SELECT d.id FROM doctors d
-           WHERE d.user_account_id = ANY($2::uuid[]) OR d.id = ANY($2::uuid[])
-         )
-         OR c.doctor_id IN (
-           SELECT dp.user_id FROM doctor_profiles dp WHERE dp.user_id = ANY($2::uuid[])
-         )
-       )
-       LIMIT 1`,
-      [patientIds, doctorIds],
+    const { rows: countRows } = await client.query(
+      `SELECT COUNT(*)::int as unread_count
+       FROM chat_messages
+       WHERE conversation_id = $1 AND sender_type = 'DOCTOR' AND status != 'READ'`,
+      [conv.id],
     );
-    return rows[0] || null;
+    return {
+      ...conv,
+      unread_count: countRows[0]?.unread_count || 0,
+    };
   } finally {
     client.release();
   }
@@ -873,6 +906,275 @@ export async function deleteMessage(
       storageKey: null,
       replyToMessageId: r.reply_to_message_id || null,
       reply_to_message_id: r.reply_to_message_id || null,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getAllConversationsForUser(
+  userIds: string[],
+): Promise<ChatConversation[]> {
+  await ensureChatTables();
+  const client = await pool.connect();
+
+  try {
+    const { rows } = await client.query(
+      `SELECT c.id,
+              c.id as conversation_id,
+              c.patient_id,
+              c.doctor_id,
+              c.status,
+              c.last_message_id,
+              c.last_message_at,
+              c.created_at,
+              c.updated_at,
+              m.message as last_message,
+              -- Patient side details
+              COALESCE(p.name, pp.full_name, au_p.username, mau_p.name, u_p.username, 'Patient') as patient_name,
+              COALESCE(p.phone, usr_p.mobile_number, u_p.username, '') as patient_phone,
+              COALESCE(p.profile_image_url, pp.profile_image_url, '') as patient_profile_image,
+              COALESCE(p.profile_image_url, pp.profile_image_url, '') as patient_avatar,
+              -- Doctor side details
+              COALESCE(d.name, dp.full_name, au_d.username, mau_d.name, u_d.username, 'Doctor') as doctor_name,
+              COALESCE(d.specialization, dp.specialty, au_d.role, mau_d.role, 'General Medicine') as specialization,
+              COALESCE(d.profile_image_url, dp.profile_image_url, '') as doctor_avatar,
+              COALESCE(d.profile_image_url, dp.profile_image_url, '') as doctor_profile_image,
+              COALESCE(d.profile_image_url, dp.profile_image_url, '') as profile_image_url,
+              -- Unread count for messages sent by the other party
+              COALESCE(
+                (
+                  SELECT COUNT(*)::int
+                  FROM chat_messages unread_m
+                  WHERE unread_m.conversation_id = c.id
+                    AND unread_m.sender_id != ALL($1::uuid[])
+                    AND unread_m.status != 'READ'
+                ),
+                0
+              ) as unread_count
+       FROM chat_conversations c
+       LEFT JOIN chat_messages m ON c.last_message_id = m.id
+       LEFT JOIN patients p ON (c.patient_id = p.id OR c.patient_id = p.user_account_id OR (p.user_id IS NOT NULL AND c.patient_id = p.user_id))
+       LEFT JOIN patient_profiles pp ON (p.user_account_id IS NOT NULL AND pp.user_id = p.user_account_id) OR (c.patient_id = pp.user_id)
+       LEFT JOIN user_accounts u_p ON (p.user_account_id = u_p.id OR c.patient_id = u_p.id)
+       LEFT JOIN users usr_p ON (c.patient_id = usr_p.id OR (p.user_id IS NOT NULL AND p.user_id = usr_p.id))
+       LEFT JOIN admin_users au_p ON (c.patient_id = au_p.id)
+       LEFT JOIN master_admin_users mau_p ON (c.patient_id = mau_p.id)
+       LEFT JOIN doctors d ON (c.doctor_id = d.id OR c.doctor_id = d.user_account_id)
+       LEFT JOIN doctor_profiles dp ON (d.user_account_id IS NOT NULL AND dp.user_id = d.user_account_id) OR (c.doctor_id = dp.user_id)
+       LEFT JOIN user_accounts u_d ON (d.user_account_id = u_d.id OR c.doctor_id = u_d.id)
+       LEFT JOIN admin_users au_d ON (c.doctor_id = au_d.id)
+       LEFT JOIN master_admin_users mau_d ON (c.doctor_id = mau_d.id)
+       WHERE c.patient_id = ANY($1::uuid[])
+          OR c.doctor_id = ANY($1::uuid[])
+          OR c.patient_id IN (
+            SELECT p.id FROM patients p
+            WHERE p.user_account_id = ANY($1::uuid[]) OR p.id = ANY($1::uuid[]) OR (p.user_id IS NOT NULL AND p.user_id = ANY($1::uuid[]))
+          )
+          OR c.patient_id IN (
+            SELECT pp.user_id FROM patient_profiles pp WHERE pp.user_id = ANY($1::uuid[])
+          )
+          OR c.doctor_id IN (
+            SELECT d.id FROM doctors d
+            WHERE d.user_account_id = ANY($1::uuid[]) OR d.id = ANY($1::uuid[])
+          )
+          OR c.doctor_id IN (
+            SELECT dp.user_id FROM doctor_profiles dp WHERE dp.user_id = ANY($1::uuid[])
+          )
+       ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`,
+      [userIds],
+    );
+    return rows;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getChatDoctors(
+  excludeUserIds: string[] = [],
+  search?: string,
+  speciality?: string,
+): Promise<any[]> {
+  const client = await pool.connect();
+  try {
+    let query = `
+      SELECT d.id,
+             d.name,
+             d.specialization,
+             d.phone,
+             d.email,
+             d.user_account_id,
+             COALESCE(d.profile_image_url, dp.profile_image_url, '') as profile_image_url,
+             d.status
+      FROM doctors d
+      LEFT JOIN doctor_profiles dp ON (d.user_account_id IS NOT NULL AND dp.user_id = d.user_account_id)
+      WHERE (d.status IS NULL OR d.status = 'ACTIVE')
+    `;
+    const params: any[] = [];
+
+    if (excludeUserIds.length > 0) {
+      params.push(excludeUserIds);
+      query += ` AND (d.id != ALL($${params.length}::uuid[]) AND (d.user_account_id IS NULL OR d.user_account_id != ALL($${params.length}::uuid[])))`;
+    }
+
+    if (speciality && speciality.toLowerCase() !== 'all') {
+      params.push(`%${speciality}%`);
+      query += ` AND d.specialization ILIKE $${params.length}`;
+    }
+
+    if (search && search.trim().length > 0) {
+      params.push(`%${search.trim()}%`);
+      query += ` AND (d.name ILIKE $${params.length} OR d.specialization ILIKE $${params.length} OR d.email ILIKE $${params.length} OR d.phone ILIKE $${params.length})`;
+    }
+
+    query += ` ORDER BY d.name ASC`;
+    const { rows } = await client.query(query, params);
+    return rows;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getChatPatients(
+  excludeUserIds: string[] = [],
+  search?: string,
+): Promise<any[]> {
+  const client = await pool.connect();
+  try {
+    let query = `
+      SELECT p.id,
+             p.name,
+             p.phone,
+             p.email,
+             p.gender,
+             p.age,
+             p.user_account_id,
+             p.user_id,
+             p.mrn,
+             COALESCE(p.profile_image_url, pp.profile_image_url, '') as profile_image_url,
+             p.status
+      FROM patients p
+      LEFT JOIN patient_profiles pp ON (p.user_account_id IS NOT NULL AND pp.user_id = p.user_account_id) OR (p.user_id IS NOT NULL AND pp.user_id = p.user_id)
+      WHERE (p.status IS NULL OR p.status = 'ACTIVE')
+    `;
+    const params: any[] = [];
+
+    if (excludeUserIds.length > 0) {
+      params.push(excludeUserIds);
+      query += ` AND (p.id != ALL($${params.length}::uuid[]) AND (p.user_account_id IS NULL OR p.user_account_id != ALL($${params.length}::uuid[])))`;
+    }
+
+    if (search && search.trim().length > 0) {
+      params.push(`%${search.trim()}%`);
+      query += ` AND (p.name ILIKE $${params.length} OR p.phone ILIKE $${params.length} OR p.email ILIKE $${params.length})`;
+    }
+
+    query += ` ORDER BY p.name ASC`;
+    const { rows } = await client.query(query, params);
+    return rows;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getChatOtherUsers(
+  excludeUserIds: string[] = [],
+  search?: string,
+): Promise<any[]> {
+  const client = await pool.connect();
+  try {
+    let query = `
+      WITH combined_others AS (
+        SELECT id, username as name, role, username as email, NULL::varchar as phone, status, 'admin_users' as source
+        FROM admin_users
+        WHERE (status IS NULL OR status = 'ACTIVE')
+
+        UNION ALL
+
+        SELECT id, name, role, email, NULL::varchar as phone, status, 'master_admin_users' as source
+        FROM master_admin_users
+        WHERE (status IS NULL OR status = 'ACTIVE')
+
+        UNION ALL
+
+        SELECT id, name, role, email, phone, status, 'hospital_staff' as source
+        FROM hospital_staff
+        WHERE (status IS NULL OR status = 'ACTIVE')
+
+        UNION ALL
+
+        SELECT id, username as name, role, username as email, NULL::varchar as phone, 'ACTIVE' as status, 'user_accounts' as source
+        FROM user_accounts
+        WHERE lower(role) NOT IN ('patient', 'doctor')
+      )
+      SELECT DISTINCT ON (COALESCE(email, id::text))
+        id, name, role, email, phone, status
+      FROM combined_others
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (excludeUserIds.length > 0) {
+      params.push(excludeUserIds);
+      query += ` AND id != ALL($${params.length}::uuid[])`;
+    }
+
+    if (search && search.trim().length > 0) {
+      params.push(`%${search.trim()}%`);
+      query += ` AND (name ILIKE $${params.length} OR email ILIKE $${params.length} OR role ILIKE $${params.length} OR phone ILIKE $${params.length})`;
+    }
+
+    query += ` ORDER BY COALESCE(email, id::text), name ASC`;
+    const { rows } = await client.query(query, params);
+    return rows;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getLastMessageAndUnread(
+  callerIds: string[],
+  peerId: string,
+): Promise<{ lastMessage?: string; lastMessageAt?: string; unreadCount: number }> {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT m.message as last_message, m.sent_at as last_message_at,
+              COALESCE(
+                (
+                  SELECT COUNT(*)::int
+                  FROM chat_messages unread_m
+                  WHERE unread_m.conversation_id = c.id
+                    AND unread_m.sender_id != ALL($1::uuid[])
+                    AND unread_m.status != 'READ'
+                ),
+                0
+              ) as unread_count
+       FROM chat_conversations c
+       LEFT JOIN chat_messages m ON c.last_message_id = m.id
+       WHERE (
+         (
+           c.patient_id = ANY($1::uuid[])
+           AND
+           (c.doctor_id = $2 OR c.doctor_id IN (SELECT user_account_id FROM doctors WHERE id = $2) OR c.doctor_id IN (SELECT id FROM doctors WHERE user_account_id = $2) OR c.doctor_id IN (SELECT user_account_id FROM patients WHERE id = $2) OR c.doctor_id IN (SELECT id FROM patients WHERE user_account_id = $2))
+         )
+         OR
+         (
+           c.doctor_id = ANY($1::uuid[])
+           AND
+           (c.patient_id = $2 OR c.patient_id IN (SELECT user_account_id FROM doctors WHERE id = $2) OR c.patient_id IN (SELECT id FROM doctors WHERE user_account_id = $2) OR c.patient_id IN (SELECT user_account_id FROM patients WHERE id = $2) OR c.patient_id IN (SELECT id FROM patients WHERE user_account_id = $2))
+         )
+       )
+       LIMIT 1`,
+      [callerIds, peerId],
+    );
+    if (rows.length === 0) {
+      return { unreadCount: 0 };
+    }
+    return {
+      lastMessage: rows[0].last_message || undefined,
+      lastMessageAt: rows[0].last_message_at || undefined,
+      unreadCount: Number(rows[0].unread_count || 0),
     };
   } finally {
     client.release();

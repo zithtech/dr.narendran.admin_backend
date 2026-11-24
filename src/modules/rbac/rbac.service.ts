@@ -140,6 +140,12 @@ export const AVAILABLE_MODULES: ModuleDefinition[] = [
     category: 'Laboratory & Diagnostics',
     description: 'Manage affiliated retail pharmacies, medical stores, and partner locations',
   },
+  {
+    slug: 'ALLIANCE_DOCTORS',
+    name: 'Alliances – Doctor Management',
+    category: 'Network',
+    description: 'Manage alliance partner doctors, external medical specialists, and clinic affiliations',
+  },
 
   // Administration & Security
   {

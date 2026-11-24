@@ -1,5 +1,8 @@
 import { Router } from 'express';
 
+import { allianceCategoriesRouter } from '@/modules/alliances/allianceCategories.routes.js';
+import { allianceDoctorsRouter } from '@/modules/alliances/allianceDoctors.routes.js';
+import { allianceSpecializationsRouter } from '@/modules/alliances/allianceSpecializations.routes.js';
 import { appointmentsRouter } from '@/modules/appointments/appointments.routes.js';
 import { authRouter } from '@/modules/auth/auth.routes.js';
 import { chatRouter } from '@/modules/chat/chat.routes.js';
@@ -57,6 +60,12 @@ apiRouter.use('/tenant', tenantRouter);
 apiRouter.use('/hospitals', hospitalsRouter);
 apiRouter.use('/branches', hospitalBranchesRouter);
 apiRouter.use('/doctors', doctorsRouter);
+apiRouter.use('/alliances/doctors', allianceDoctorsRouter);
+apiRouter.use('/alliance-doctors', allianceDoctorsRouter);
+apiRouter.use('/alliances/categories', allianceCategoriesRouter);
+apiRouter.use('/alliance-categories', allianceCategoriesRouter);
+apiRouter.use('/alliances/specializations', allianceSpecializationsRouter);
+apiRouter.use('/alliance-specializations', allianceSpecializationsRouter);
 apiRouter.use('/doctor-availability', doctorAvailabilityRouter);
 apiRouter.use('/user-accounts', userAccountsRouter);
 apiRouter.use('/patients', patientsRouter);

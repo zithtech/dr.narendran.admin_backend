@@ -832,7 +832,12 @@ export class LabPortalService {
             OR phone ILIKE $1 
             OR email ILIKE $1 
             OR id::text ILIKE $1
-            OR id::text IN (SELECT patient_id::text FROM prescription_lab_tests WHERE test_name ILIKE $1)
+            OR id::text IN (
+              SELECT COALESCE(p.patient_id::text, plt.patient_id::text) 
+              FROM prescription_lab_tests plt 
+              LEFT JOIN prescriptions p ON p.id = plt.prescription_id 
+              WHERE plt.test_name ILIKE $1
+            )
             OR id::text IN (SELECT patient_id::text FROM lab_test_reports WHERE test_name ILIKE $1)
          ORDER BY created_at DESC
          LIMIT 15`,
@@ -891,27 +896,33 @@ export class LabPortalService {
       };
 
       // 2. Fetch Prescribed / Required Lab Tests
-      const testsRes = await client.query(
-        `SELECT 
-          plt.id,
-          plt.prescription_id,
-          plt.patient_id,
-          plt.lab_test_id,
-          plt.test_name,
-          plt.instructions,
-          plt.created_at,
-          plt.updated_at,
-          p.prescription_date,
-          p.doctor_id,
-          COALESCE(d.name, 'Dr. Narendran') as doctor_name,
-          d.specialization as doctor_specialization
-        FROM prescription_lab_tests plt
-        JOIN prescriptions p ON p.id = plt.prescription_id
-        LEFT JOIN doctors d ON d.id = p.doctor_id
-        WHERE plt.patient_id::text = ANY($1::text[]) OR p.patient_id::text = ANY($1::text[])
-        ORDER BY plt.created_at DESC`,
-        [allPatientIds],
-      );
+      let testsRes: { rows: any[] };
+      try {
+        testsRes = await client.query(
+          `SELECT 
+            plt.id,
+            plt.prescription_id,
+            COALESCE(p.patient_id, plt.patient_id) as patient_id,
+            plt.lab_test_id,
+            plt.test_name,
+            plt.instructions,
+            plt.created_at,
+            plt.created_at as updated_at,
+            p.prescription_date,
+            p.doctor_id,
+            COALESCE(d.name, 'Dr. Narendran') as doctor_name,
+            d.specialization as doctor_specialization
+          FROM prescription_lab_tests plt
+          JOIN prescriptions p ON p.id = plt.prescription_id
+          LEFT JOIN doctors d ON d.id = p.doctor_id
+          WHERE p.patient_id::text = ANY($1::text[])
+          ORDER BY plt.created_at DESC`,
+          [allPatientIds],
+        );
+      } catch (err) {
+        console.warn('[LabPortal] getPatientTestsAndReports fallback:', err);
+        testsRes = { rows: [] };
+      }
 
       // 3. Fetch All Lab Test Reports for this Patient
       const reportsRes = await client.query(
@@ -1328,16 +1339,16 @@ export class LabPortalService {
 
     const client = await pool.connect();
     try {
+      // 1. Primary: query prescribed tests matching this lab or unassigned tests awaiting fulfillment
       const { rows } = await client.query(
         `SELECT 
           plt.id,
           plt.prescription_id,
-          COALESCE(pt.id, appt.patient_id, plt.patient_id, p.patient_id) as patient_id,
+          COALESCE(pt.id, appt.patient_id, p.patient_id) as patient_id,
           plt.lab_test_id,
           plt.test_name,
           plt.instructions,
           plt.created_at,
-          plt.updated_at,
           plt.lab_id,
           p.prescription_date,
           p.doctor_id,
@@ -1357,20 +1368,19 @@ export class LabPortalService {
         LEFT JOIN appointments appt ON appt.id::text = p.appointment_id::text
         LEFT JOIN doctors d ON d.id::text = p.doctor_id::text
         LEFT JOIN patients pt ON (
-          pt.id::text = plt.patient_id::text 
-          OR pt.id::text = p.patient_id::text 
-          OR pt.id::text = appt.patient_id::text
-          OR pt.user_account_id::text = plt.patient_id::text 
-          OR pt.user_account_id::text = p.patient_id::text
-          OR pt.user_account_id::text = appt.patient_id::text
-          OR pt.user_id::text = plt.patient_id::text
+          pt.id::text = p.patient_id::text 
+          OR pt.user_account_id::text = p.patient_id::text 
           OR pt.user_id::text = p.patient_id::text
-          OR pt.user_id::text = appt.patient_id::text
+          OR (appt.patient_id IS NOT NULL AND (
+            pt.id::text = appt.patient_id::text 
+            OR pt.user_account_id::text = appt.patient_id::text 
+            OR pt.user_id::text = appt.patient_id::text
+          ))
           OR (appt.patient_phone IS NOT NULL AND pt.phone = appt.patient_phone)
         )
         LEFT JOIN lab_tests lt ON lt.id::text = plt.lab_test_id::text
         LEFT JOIN labs l ON l.id::text = plt.lab_id::text
-        WHERE (plt.lab_id::text = $1::text OR (plt.lab_id IS NULL AND l.id::text = $1::text))
+        WHERE (plt.lab_id::text = $1::text OR plt.lab_id IS NULL)
           AND (p.status IS NULL OR LOWER(p.status::text) NOT IN ('completed', 'cancelled'))
           AND NOT EXISTS (
             SELECT 1 FROM lab_test_reports ltr 
@@ -1403,6 +1413,78 @@ export class LabPortalService {
         lab_id: r.lab_id,
         lab_name: r.lab_name,
       }));
+    } catch (err) {
+      console.error('[LabPortal] Error querying upcoming tests, attempting fallback:', err);
+      try {
+        // Fallback: simpler query without appointments join in case appointments table or columns vary
+        const { rows: fallbackRows } = await client.query(
+          `SELECT 
+            plt.id,
+            plt.prescription_id,
+            COALESCE(pt.id, p.patient_id) as patient_id,
+            plt.lab_test_id,
+            plt.test_name,
+            plt.instructions,
+            plt.created_at,
+            plt.lab_id,
+            p.prescription_date,
+            p.doctor_id,
+            p.additional_notes,
+            COALESCE(d.name, 'Dr. Narendran') as doctor_name,
+            d.specialization as doctor_specialization,
+            COALESCE(pt.name, 'Patient') as patient_name,
+            pt.phone as patient_phone,
+            pt.email as patient_email,
+            pt.gender as patient_gender,
+            pt.date_of_birth as patient_dob,
+            l.name as lab_name
+          FROM prescription_lab_tests plt
+          LEFT JOIN prescriptions p ON p.id::text = plt.prescription_id::text
+          LEFT JOIN doctors d ON d.id::text = p.doctor_id::text
+          LEFT JOIN patients pt ON (
+            pt.id::text = p.patient_id::text 
+            OR pt.user_account_id::text = p.patient_id::text 
+            OR pt.user_id::text = p.patient_id::text
+          )
+          LEFT JOIN labs l ON l.id::text = plt.lab_id::text
+          WHERE (plt.lab_id::text = $1::text OR plt.lab_id IS NULL)
+            AND (p.status IS NULL OR LOWER(p.status::text) NOT IN ('completed', 'cancelled'))
+            AND NOT EXISTS (
+              SELECT 1 FROM lab_test_reports ltr 
+              WHERE ltr.prescription_lab_test_id::text = plt.id::text
+            )
+          ORDER BY plt.created_at DESC`,
+          [labId],
+        );
+
+        return fallbackRows.map((r) => ({
+          id: r.id,
+          prescription_id: r.prescription_id,
+          patient_id: r.patient_id || '',
+          patient_name: r.patient_name || 'Patient',
+          patient_phone: r.patient_phone,
+          patient_email: r.patient_email,
+          patient_gender: r.patient_gender,
+          patient_dob: r.patient_dob ? String(r.patient_dob).split('T')[0] : null,
+          doctor_id: r.doctor_id,
+          doctor_name: r.doctor_name,
+          doctor_specialization: r.doctor_specialization || 'Clinical Specialist',
+          test_name: r.test_name,
+          test_category: 'Diagnostic Investigation',
+          instructions: r.instructions,
+          prescription_date: r.prescription_date ? String(r.prescription_date).split('T')[0] : String(r.created_at).split('T')[0],
+          scheduled_date: r.prescription_date ? String(r.prescription_date).split('T')[0] : String(r.created_at).split('T')[0],
+          status: 'Upcoming',
+          diagnosis: null,
+          notes: r.additional_notes || null,
+          lab_id: r.lab_id,
+          lab_name: r.lab_name,
+        }));
+      } catch (fallbackErr) {
+        console.error('[LabPortal] Fallback upcoming tests query also failed:', fallbackErr);
+        // Return empty array rather than 500 crashing the whole lab portal
+        return [];
+      }
     } finally {
       client.release();
     }

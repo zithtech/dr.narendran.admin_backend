@@ -13,9 +13,12 @@ import { getConversationRoom, getUserRoom } from '@/socket/socketRooms.js';
 
 import * as chatRepo from './chat.repository.js';
 import type {
+  CategorizedRecipients,
   ChatConversation,
   ChatDoctor,
   ChatMessage,
+  ChatRecipient,
+  RecipientCategory,
   SenderType,
 } from './chat.types.js';
 
@@ -64,6 +67,52 @@ export class ChatService {
       );
       const username = uaRows[0]?.username;
       const accountRole = uaRows[0]?.role?.toLowerCase() || '';
+
+      const isAdminRole =
+        normalizedRole === 'admin' ||
+        normalizedRole.includes('admin') ||
+        normalizedRole.includes('super') ||
+        accountRole === 'admin' ||
+        accountRole.includes('admin') ||
+        accountRole.includes('super');
+
+      if (isAdminRole) {
+        const { rows: auRows } = await client.query(
+          `SELECT id, username as name, role FROM admin_users WHERE id = $1 LIMIT 1`,
+          [userId],
+        );
+        if (auRows.length > 0) {
+          return {
+            userAccountId: userId,
+            senderType: 'PATIENT',
+            name: auRows[0].name || 'Admin',
+            doctorIds: [userId],
+            patientIds: [userId],
+          };
+        }
+
+        const { rows: mauRows } = await client.query(
+          `SELECT id, name, role FROM master_admin_users WHERE id = $1 LIMIT 1`,
+          [userId],
+        );
+        if (mauRows.length > 0) {
+          return {
+            userAccountId: userId,
+            senderType: 'PATIENT',
+            name: mauRows[0].name || 'Master Admin',
+            doctorIds: [userId],
+            patientIds: [userId],
+          };
+        }
+
+        return {
+          userAccountId: userId,
+          senderType: 'PATIENT',
+          name: username || 'Admin',
+          doctorIds: [userId],
+          patientIds: [userId],
+        };
+      }
 
       const isDoctorRole = normalizedRole === 'doctor' || accountRole === 'doctor';
 
@@ -254,21 +303,46 @@ export class ChatService {
   ): Promise<string> {
     const client = await pool.connect();
     try {
-      if (senderType === 'PATIENT') {
-        // Recipient is doctor
-        const { rows } = await client.query(
-          `SELECT user_account_id, id FROM doctors WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
-          [conversation.doctor_id],
-        );
-        return rows[0]?.user_account_id || rows[0]?.id || conversation.doctor_id;
-      } else {
-        // Recipient is patient
-        const { rows } = await client.query(
-          `SELECT user_account_id, id FROM patients WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
-          [conversation.patient_id],
-        );
-        return rows[0]?.user_account_id || rows[0]?.id || conversation.patient_id;
+      const targetEntityId =
+        senderType === 'PATIENT' ? conversation.doctor_id : conversation.patient_id;
+
+      // 1. Check doctors
+      const { rows: dRows } = await client.query(
+        `SELECT user_account_id, id FROM doctors WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
+        [targetEntityId],
+      );
+      if (dRows.length > 0) {
+        return dRows[0].user_account_id || dRows[0].id || targetEntityId;
       }
+
+      // 2. Check patients
+      const { rows: pRows } = await client.query(
+        `SELECT user_account_id, user_id, id FROM patients WHERE id::text = $1 OR user_account_id::text = $1 OR (user_id IS NOT NULL AND user_id::text = $1) LIMIT 1`,
+        [targetEntityId],
+      );
+      if (pRows.length > 0) {
+        return pRows[0].user_account_id || pRows[0].user_id || pRows[0].id || targetEntityId;
+      }
+
+      // 3. Check admin_users
+      const { rows: auRows } = await client.query(
+        `SELECT id FROM admin_users WHERE id::text = $1 LIMIT 1`,
+        [targetEntityId],
+      );
+      if (auRows.length > 0) {
+        return auRows[0].id;
+      }
+
+      // 4. Check master_admin_users
+      const { rows: mauRows } = await client.query(
+        `SELECT id FROM master_admin_users WHERE id::text = $1 LIMIT 1`,
+        [targetEntityId],
+      );
+      if (mauRows.length > 0) {
+        return mauRows[0].id;
+      }
+
+      return targetEntityId;
     } finally {
       client.release();
     }
@@ -277,85 +351,226 @@ export class ChatService {
   async getDoctors(
     speciality?: string,
     search?: string,
-    currentPatientId?: string,
-  ): Promise<ChatDoctor[]> {
-    const client = await pool.connect();
-    try {
-      let query = `
-        SELECT d.id,
-               d.name,
-               d.specialization,
-               d.phone,
-               d.email,
-               d.user_account_id,
-               COALESCE(d.profile_image_url, dp.profile_image_url, '') as profile_image_url
-        FROM doctors d
-        LEFT JOIN doctor_profiles dp ON (d.user_account_id IS NOT NULL AND dp.user_id = d.user_account_id)
-        WHERE (d.status IS NULL OR d.status = 'ACTIVE')
-      `;
-      const params: any[] = [];
-
-      if (speciality && speciality.toLowerCase() !== 'all') {
-        params.push(`%${speciality}%`);
-        query += ` AND d.specialization ILIKE $${params.length}`;
-      }
-
-      if (search && search.trim().length > 0) {
-        params.push(`%${search.trim()}%`);
-        query += ` AND (d.name ILIKE $${params.length} OR d.specialization ILIKE $${params.length})`;
-      }
-
-      query += ` ORDER BY d.name ASC`;
-
-      const { rows } = await client.query(query, params);
-
-      const doctors: ChatDoctor[] = [];
-      for (const row of rows) {
-        const isOnline =
-          presenceManager.isUserOnline(row.id) ||
-          (row.user_account_id ? presenceManager.isUserOnline(row.user_account_id) : false);
-
-        let lastMessage: string | undefined = undefined;
-        let lastMessageAt: string | undefined = undefined;
-        let unreadCount: number | undefined = undefined;
-
-        if (currentPatientId) {
-          const conv = await chatRepo.findConversationByPatientDoctor(
-            currentPatientId,
-            row.id,
-          );
-          if (conv) {
-            lastMessage = conv.last_message || undefined;
-            lastMessageAt = conv.last_message_at || conv.updated_at || undefined;
-            unreadCount = conv.unread_count || 0;
-          }
-        }
-
-        const rawName = row.name || 'Doctor';
-        const formattedName = rawName.startsWith('Dr.') ? rawName : `Dr. ${rawName}`;
-        const signedImage = await signProfileImageUrl(row.profile_image_url);
-
-        doctors.push({
-          id: row.id,
-          user_account_id: row.user_account_id,
-          userAccountId: row.user_account_id,
-          name: formattedName,
-          specialization: row.specialization || 'General Medicine',
-          specialty: row.specialization || 'General Medicine',
-          profile_image_url: signedImage || undefined,
-          avatar_url: signedImage || undefined,
-          is_online: isOnline,
-          online_status: isOnline ? 'online' : 'offline',
-          last_message: lastMessage,
-          last_message_at: lastMessageAt,
-          unread_count: unreadCount,
-        });
-      }
-
-      return doctors;
-    } finally {
-      client.release();
+    callerId?: string,
+    callerRole?: string,
+  ): Promise<ChatRecipient[]> {
+    let excludeUserIds: string[] = [];
+    if (callerId) {
+      excludeUserIds.push(callerId);
+      try {
+        const callerIdentity = await this.resolveUserIdentity(callerId, callerRole);
+        if (callerIdentity.doctorId) excludeUserIds.push(callerIdentity.doctorId);
+        if (callerIdentity.userAccountId) excludeUserIds.push(callerIdentity.userAccountId);
+        if (callerIdentity.doctorIds) excludeUserIds.push(...callerIdentity.doctorIds);
+      } catch {}
     }
+    excludeUserIds = Array.from(new Set(excludeUserIds.filter(Boolean)));
+
+    const rows = await chatRepo.getChatDoctors(excludeUserIds, search, speciality);
+    const callerIds = callerId ? [callerId, ...(excludeUserIds || [])] : [];
+
+    const doctors: ChatRecipient[] = [];
+    for (const row of rows) {
+      const isOnline =
+        presenceManager.isUserOnline(row.id) ||
+        (row.user_account_id ? presenceManager.isUserOnline(row.user_account_id) : false);
+
+      let lastMessage: string | undefined = undefined;
+      let lastMessageAt: string | undefined = undefined;
+      let unreadCount: number | undefined = undefined;
+
+      if (callerIds.length > 0) {
+        const stats = await chatRepo.getLastMessageAndUnread(callerIds, row.id);
+        lastMessage = stats?.lastMessage;
+        lastMessageAt = stats?.lastMessageAt;
+        unreadCount = stats?.unreadCount;
+      }
+
+      const rawName = row.name || 'Doctor';
+      const formattedName = rawName.startsWith('Dr.') ? rawName : `Dr. ${rawName}`;
+      const signedImage = await signProfileImageUrl(row.profile_image_url);
+
+      doctors.push({
+        id: row.id,
+        user_account_id: row.user_account_id || undefined,
+        name: formattedName,
+        role: 'DOCTOR',
+        specialization: row.specialization || 'General Medicine',
+        specialty: row.specialization || 'General Medicine',
+        subtitle: row.specialization || 'General Medicine',
+        phone: row.phone || undefined,
+        email: row.email || undefined,
+        profile_image_url: signedImage || undefined,
+        avatar_url: signedImage || undefined,
+        is_online: isOnline,
+        online_status: isOnline ? 'online' : 'offline',
+        last_message: lastMessage,
+        last_message_at: lastMessageAt,
+        unread_count: unreadCount,
+        status: row.status || 'ACTIVE',
+      });
+    }
+    return doctors;
+  }
+
+  async getPatients(
+    search?: string,
+    callerId?: string,
+    callerRole?: string,
+  ): Promise<ChatRecipient[]> {
+    const normRole = (callerRole || '').toLowerCase();
+    if (normRole === 'patient') {
+      throw new ForbiddenError('Patients are not authorized to view the patient recipient list');
+    }
+    if (normRole === 'doctor') {
+      throw new ForbiddenError('Doctors are not authorized to view the patient recipient list');
+    }
+
+    let excludeUserIds: string[] = callerId ? [callerId] : [];
+    if (callerId) {
+      try {
+        const callerIdentity = await this.resolveUserIdentity(callerId, callerRole);
+        if (callerIdentity.patientId) excludeUserIds.push(callerIdentity.patientId);
+        if (callerIdentity.userAccountId) excludeUserIds.push(callerIdentity.userAccountId);
+      } catch {}
+    }
+    excludeUserIds = Array.from(new Set(excludeUserIds.filter(Boolean)));
+
+    const rows = await chatRepo.getChatPatients(excludeUserIds, search);
+    const callerIds = callerId ? [callerId, ...(excludeUserIds || [])] : [];
+
+    const patients: ChatRecipient[] = [];
+    for (const row of rows) {
+      const isOnline =
+        presenceManager.isUserOnline(row.id) ||
+        (row.user_account_id ? presenceManager.isUserOnline(row.user_account_id) : false) ||
+        (row.user_id ? presenceManager.isUserOnline(row.user_id) : false);
+
+      let lastMessage: string | undefined = undefined;
+      let lastMessageAt: string | undefined = undefined;
+      let unreadCount: number | undefined = undefined;
+
+      if (callerIds.length > 0) {
+        const stats = await chatRepo.getLastMessageAndUnread(callerIds, row.id);
+        lastMessage = stats?.lastMessage;
+        lastMessageAt = stats?.lastMessageAt;
+        unreadCount = stats?.unreadCount;
+      }
+
+      const signedImage = await signProfileImageUrl(row.profile_image_url);
+      const subtitle =
+        [row.age ? `${row.age} yrs` : null, row.gender].filter(Boolean).join(' • ') ||
+        row.phone ||
+        row.mrn ||
+        'Patient';
+
+      patients.push({
+        id: row.id,
+        user_account_id: row.user_account_id || row.user_id || undefined,
+        name: row.name || 'Patient',
+        role: 'PATIENT',
+        subtitle,
+        phone: row.phone || undefined,
+        email: row.email || undefined,
+        gender: row.gender || undefined,
+        age: row.age || undefined,
+        profile_image_url: signedImage || undefined,
+        avatar_url: signedImage || undefined,
+        is_online: isOnline,
+        online_status: isOnline ? 'online' : 'offline',
+        last_message: lastMessage,
+        last_message_at: lastMessageAt,
+        unread_count: unreadCount,
+        status: row.status || 'ACTIVE',
+      });
+    }
+    return patients;
+  }
+
+  async getOtherUsers(
+    search?: string,
+    callerId?: string,
+    _callerRole?: string,
+  ): Promise<ChatRecipient[]> {
+    const excludeUserIds: string[] = callerId ? [callerId] : [];
+    const rows = await chatRepo.getChatOtherUsers(excludeUserIds, search);
+    const callerIds = callerId ? [callerId] : [];
+
+    const others: ChatRecipient[] = [];
+    for (const row of rows) {
+      const isOnline = presenceManager.isUserOnline(row.id);
+
+      let lastMessage: string | undefined = undefined;
+      let lastMessageAt: string | undefined = undefined;
+      let unreadCount: number | undefined = undefined;
+
+      if (callerIds.length > 0) {
+        const stats = await chatRepo.getLastMessageAndUnread(callerIds, row.id);
+        lastMessage = stats?.lastMessage;
+        lastMessageAt = stats?.lastMessageAt;
+        unreadCount = stats?.unreadCount;
+      }
+
+      const rawRole = (row.role || 'Admin').toUpperCase();
+      others.push({
+        id: row.id,
+        user_account_id: row.id,
+        name: row.name || 'Admin',
+        role: rawRole,
+        subtitle: `${row.role || 'Admin'} Account`,
+        phone: row.phone || undefined,
+        email: row.email || undefined,
+        is_online: isOnline,
+        online_status: isOnline ? 'online' : 'offline',
+        last_message: lastMessage,
+        last_message_at: lastMessageAt,
+        unread_count: unreadCount,
+        status: row.status || 'ACTIVE',
+      });
+    }
+    return others;
+  }
+
+  async getRecipients(
+    callerId: string,
+    callerRole: string,
+    category?: string,
+    search?: string,
+    speciality?: string,
+  ): Promise<CategorizedRecipients | ChatRecipient[]> {
+    const normCategory = category?.toLowerCase()?.trim();
+
+    if (normCategory) {
+      if (normCategory === 'doctors') {
+        return this.getDoctors(speciality, search, callerId, callerRole);
+      }
+      if (normCategory === 'patients') {
+        return this.getPatients(search, callerId, callerRole);
+      }
+      if (normCategory === 'others' || normCategory === 'admins') {
+        return this.getOtherUsers(search, callerId, callerRole);
+      }
+      throw new ValidationError('Invalid category. Must be doctors, patients, or others.');
+    }
+
+    const normRole = (callerRole || '').toLowerCase();
+    const isAdmin = normRole === 'admin' || normRole.includes('admin') || normRole.includes('super');
+
+    if (isAdmin) {
+      const [doctors, patients, others] = await Promise.all([
+        this.getDoctors(speciality, search, callerId, callerRole),
+        this.getPatients(search, callerId, callerRole),
+        this.getOtherUsers(search, callerId, callerRole),
+      ]);
+      return { doctors, patients, others };
+    }
+
+    // Doctor or Patient
+    const [doctors, others] = await Promise.all([
+      this.getDoctors(speciality, search, callerId, callerRole),
+      this.getOtherUsers(search, callerId, callerRole),
+    ]);
+    return { doctors, others };
   }
 
   async getOrCreateConversation(
@@ -369,71 +584,102 @@ export class ChatService {
     const client = await pool.connect();
 
     try {
-      let patientId: string | undefined;
-      let doctorId: string | undefined;
+      const normRole = (role || '').toLowerCase();
+      const isAdmin = normRole === 'admin' || normRole.includes('admin') || normRole.includes('super');
 
-      if (targetPatientId && targetDoctorId) {
-        patientId = targetPatientId;
-        doctorId = targetDoctorId;
-      } else if (targetPatientId && !targetDoctorId) {
-        patientId = targetPatientId;
-        doctorId = identity.doctorId || userId;
-      } else if (targetDoctorId && !targetPatientId) {
-        doctorId = targetDoctorId;
-        patientId = identity.patientId || userId;
-      } else if (recipientId) {
-        if (identity.senderType === 'DOCTOR') {
-          patientId = recipientId;
-          doctorId = identity.doctorId || userId;
-        } else {
-          doctorId = recipientId;
-          patientId = identity.patientId || userId;
-        }
-      } else if (identity.senderType === 'PATIENT') {
-        if (!targetDoctorId) {
-          throw new ValidationError('doctor_id or patient_id is required');
-        }
-        doctorId = targetDoctorId;
-        patientId = identity.patientId || userId;
-      } else {
-        if (!targetPatientId) {
-          throw new ValidationError('patient_id or doctor_id is required');
-        }
-        patientId = targetPatientId;
-        doctorId = identity.doctorId || userId;
+      const targetId = targetDoctorId || targetPatientId || recipientId;
+      if (!targetId) {
+        throw new ValidationError('recipient_id, doctor_id, or patient_id is required');
       }
 
-      // Resolve doctorId to doctors.id if user_account_id was passed
-      if (doctorId) {
+      // 1. Resolve target entity type and canonical ID
+      let isTargetDoctor = Boolean(targetDoctorId);
+      let isTargetPatient = Boolean(targetPatientId);
+      let canonicalTargetId = targetId;
+
+      if (!isTargetDoctor && !isTargetPatient) {
         const { rows: dRows } = await client.query(
-          `SELECT id FROM doctors WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
-          [doctorId],
+          `SELECT id, user_account_id FROM doctors WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
+          [targetId],
         );
         if (dRows.length > 0) {
-          doctorId = dRows[0].id;
+          isTargetDoctor = true;
+          canonicalTargetId = dRows[0].id;
+        } else {
+          const { rows: pRows } = await client.query(
+            `SELECT id, user_account_id, user_id FROM patients WHERE id::text = $1 OR user_account_id::text = $1 OR (user_id IS NOT NULL AND user_id::text = $1) LIMIT 1`,
+            [targetId],
+          );
+          if (pRows.length > 0) {
+            isTargetPatient = true;
+            canonicalTargetId = pRows[0].id;
+          }
         }
-      }
-
-      // Resolve patientId to patients.id if user_account_id was passed
-      if (patientId) {
+      } else if (isTargetDoctor) {
+        const { rows: dRows } = await client.query(
+          `SELECT id FROM doctors WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
+          [targetId],
+        );
+        if (dRows.length > 0) canonicalTargetId = dRows[0].id;
+      } else if (isTargetPatient) {
         const { rows: pRows } = await client.query(
           `SELECT id FROM patients WHERE id::text = $1 OR user_account_id::text = $1 LIMIT 1`,
-          [patientId],
+          [targetId],
         );
-        if (pRows.length > 0) {
-          patientId = pRows[0].id;
-        }
+        if (pRows.length > 0) canonicalTargetId = pRows[0].id;
       }
 
-      if (!patientId || !doctorId) {
-        throw new ValidationError('Unable to identify patient and doctor');
+      // 2. Prevent user chatting with themselves
+      const callerAllIds = [
+        userId,
+        identity.userAccountId,
+        identity.doctorId,
+        identity.patientId,
+      ].filter(Boolean) as string[];
+      if (callerAllIds.includes(canonicalTargetId) || callerAllIds.includes(targetId)) {
+        throw new ValidationError('Cannot create a conversation with yourself');
       }
 
-      let conv = await chatRepo.findConversationByPatientDoctor(patientId, doctorId);
-      if (!conv) {
-        conv = await chatRepo.createConversation(patientId, doctorId);
+      // 3. Check for existing conversation bi-directionally
+      let conv = await chatRepo.findConversationByParticipants(callerAllIds, [
+        canonicalTargetId,
+        targetId,
+      ]);
+      if (conv) {
+        return {
+          ...conv,
+          id: conv.id,
+          conversation_id: conv.id,
+        };
       }
 
+      // 4. Assign patient_id and doctor_id deterministically
+      let patientId: string;
+      let doctorId: string;
+
+      const callerDoctorId = identity.doctorId;
+      const callerPatientId = identity.patientId;
+
+      if (isTargetDoctor && (callerPatientId || !isAdmin)) {
+        patientId = callerPatientId || userId;
+        doctorId = canonicalTargetId;
+      } else if (isTargetPatient && (callerDoctorId || !isAdmin)) {
+        patientId = canonicalTargetId;
+        doctorId = callerDoctorId || userId;
+      } else if (isAdmin && isTargetPatient) {
+        patientId = canonicalTargetId;
+        doctorId = userId;
+      } else if (isAdmin && isTargetDoctor) {
+        patientId = userId;
+        doctorId = canonicalTargetId;
+      } else {
+        // Peer to peer (Admin ↔ Admin, Doctor ↔ Doctor, etc.)
+        const sorted = [userId, canonicalTargetId].sort();
+        patientId = sorted[0]!;
+        doctorId = sorted[1]!;
+      }
+
+      conv = await chatRepo.createConversation(patientId, doctorId);
       return {
         ...conv,
         id: conv.id,
@@ -449,87 +695,80 @@ export class ChatService {
     role: string,
   ): Promise<ChatConversation[]> {
     const identity = await this.resolveUserIdentity(userId, role);
+    const callerIds = Array.from(
+      new Set(
+        [
+          userId,
+          identity.userAccountId,
+          identity.doctorId,
+          identity.patientId,
+          ...(identity.doctorIds || []),
+          ...(identity.patientIds || []),
+        ].filter(Boolean) as string[],
+      ),
+    );
 
-    if (identity.senderType === 'DOCTOR') {
-      const doctorIds = identity.doctorIds || [identity.doctorId || userId, userId];
-      const convs = await chatRepo.getConversationsForDoctor(doctorIds);
+    const convs = await chatRepo.getAllConversationsForUser(callerIds);
 
-      // Development logging
-      // eslint-disable-next-line no-console
-      console.log('Authenticated doctor user ID:', userId);
-      // eslint-disable-next-line no-console
-      console.log('Resolved doctor ID:', identity.doctorId);
-      // eslint-disable-next-line no-console
-      console.log('Conversation query doctor ID:', doctorIds);
-      // eslint-disable-next-line no-console
-      console.log('Number of conversations returned:', convs.length);
+    return Promise.all(
+      convs.map(async (c) => {
+        const isCallerPatient = callerIds.includes(c.patient_id);
+        const otherId = isCallerPatient ? c.doctor_id : c.patient_id;
+        const otherName = isCallerPatient ? c.doctor_name : c.patient_name;
+        const rawOtherAvatar = isCallerPatient
+          ? c.doctor_avatar || c.profile_image_url
+          : c.patient_avatar || c.patient_profile_image;
+        const signedOtherAvatar = await signProfileImageUrl(rawOtherAvatar);
 
-      logger.info(
-        {
-          authenticatedDoctorUserId: userId,
-          resolvedDoctorId: identity.doctorId,
-          conversationQueryDoctorId: doctorIds,
-          numberOfConversationsReturned: convs.length,
-        },
-        `Authenticated doctor user ID: ${userId} | Resolved doctor ID: ${identity.doctorId} | Conversation query doctor ID: ${JSON.stringify(doctorIds)} | Number of conversations returned: ${convs.length}`,
-      );
-
-
-      return convs.map(c => ({
-        ...c,
-        id: c.id,
-        conversation_id: c.conversation_id || c.id,
-        conversationId: c.conversation_id || c.id,
-        patient_id: c.patient_id,
-        patientId: c.patient_id,
-        doctor_id: c.doctor_id,
-        doctorId: c.doctor_id,
-        patient_name: c.patient_name || 'Patient',
-        patientName: c.patient_name || 'Patient',
-        patient_phone: c.patient_phone || '',
-        patientPhone: c.patient_phone || '',
-        patient_profile_image: c.patient_profile_image || c.patient_avatar || '',
-        patient_avatar: c.patient_avatar || c.patient_profile_image || '',
-        profile_image_url: c.profile_image_url || c.patient_profile_image || '',
-        last_message: c.last_message || null,
-        lastMessage: c.last_message || null,
-        last_message_at: c.last_message_at || c.updated_at || null,
-        lastMessageAt: c.last_message_at || c.updated_at || null,
-        unread_count: Number(c.unread_count || 0),
-        unreadCount: Number(c.unread_count || 0),
-        patient_online: presenceManager.isUserOnline(c.patient_id),
-      }));
-    } else {
-      const patientIds = identity.patientIds || [identity.patientId || userId, userId];
-      const convs = await chatRepo.getConversationsForPatient(patientIds);
-
-      return Promise.all(convs.map(async c => {
-        const rawDoctorImg = c.profile_image_url || c.doctor_profile_image || c.doctor_avatar || null;
+        const rawDoctorImg =
+          c.profile_image_url || c.doctor_profile_image || c.doctor_avatar || null;
         const signedDoctorImg = await signProfileImageUrl(rawDoctorImg);
+        const signedPatientImg = await signProfileImageUrl(
+          c.patient_profile_image || c.patient_avatar || null,
+        );
+
+        const isOtherOnline = presenceManager.isUserOnline(otherId);
+
         return {
-        ...c,
-        id: c.id,
-        conversation_id: c.conversation_id || c.id,
-        conversationId: c.conversation_id || c.id,
-        patient_id: c.patient_id,
-        patientId: c.patient_id,
-        doctor_id: c.doctor_id,
-        doctorId: c.doctor_id,
-        doctor_name: c.doctor_name || 'Doctor',
-        doctorName: c.doctor_name || 'Doctor',
-        specialization: c.specialization || 'General Medicine',
-        doctor_avatar: signedDoctorImg || '',
-        doctor_profile_image: signedDoctorImg || '',
-        profile_image_url: signedDoctorImg || '',
-        last_message: c.last_message || null,
-        lastMessage: c.last_message || null,
-        last_message_at: c.last_message_at || c.updated_at || null,
-        lastMessageAt: c.last_message_at || c.updated_at || null,
-        unread_count: Number(c.unread_count || 0),
-        unreadCount: Number(c.unread_count || 0),
-        doctor_online: presenceManager.isUserOnline(c.doctor_id),
-      }}));
-    }
+          ...c,
+          id: c.id,
+          conversation_id: c.id,
+          conversationId: c.id,
+          patient_id: c.patient_id,
+          patientId: c.patient_id,
+          doctor_id: c.doctor_id,
+          doctorId: c.doctor_id,
+          doctor_name: c.doctor_name || 'Doctor',
+          doctorName: c.doctor_name || 'Doctor',
+          specialization: c.specialization || 'General Medicine',
+          doctor_avatar: signedDoctorImg || '',
+          doctor_profile_image: signedDoctorImg || '',
+          profile_image_url: signedDoctorImg || '',
+          doctor_online: presenceManager.isUserOnline(c.doctor_id),
+          patient_name: c.patient_name || 'Patient',
+          patientName: c.patient_name || 'Patient',
+          patient_phone: c.patient_phone || '',
+          patientPhone: c.patient_phone || '',
+          patient_profile_image: signedPatientImg || '',
+          patient_avatar: signedPatientImg || '',
+          patient_online: presenceManager.isUserOnline(c.patient_id),
+          recipient_id: otherId,
+          recipientId: otherId,
+          recipient_name: otherName || 'User',
+          other_participant_name: otherName || 'User',
+          name: otherName || 'User',
+          avatar_url: signedOtherAvatar || '',
+          recipient_avatar: signedOtherAvatar || '',
+          is_online: isOtherOnline,
+          unread_count: Number(c.unread_count || 0),
+          unreadCount: Number(c.unread_count || 0),
+          last_message: c.last_message || null,
+          lastMessage: c.last_message || null,
+          last_message_at: c.last_message_at || c.updated_at || null,
+          lastMessageAt: c.last_message_at || c.updated_at || null,
+        };
+      }),
+    );
   }
 
   async authorizeConversation(
@@ -543,18 +782,26 @@ export class ChatService {
     }
 
     const identity = await this.resolveUserIdentity(userId, role);
-    const patientIds = identity.patientIds || [identity.patientId || userId, userId, identity.userAccountId];
-    const doctorIds = identity.doctorIds || [identity.doctorId || userId, userId, identity.userAccountId];
+    const callerIds = Array.from(
+      new Set(
+        [
+          userId,
+          identity.userAccountId,
+          identity.doctorId,
+          identity.patientId,
+          ...(identity.doctorIds || []),
+          ...(identity.patientIds || []),
+        ].filter(Boolean) as string[],
+      ),
+    );
 
-    const isPatientMatch = patientIds.some(id => id && (conv.patient_id === id || String(conv.patient_id) === String(id)));
-    const isDoctorMatch = doctorIds.some(id => id && (conv.doctor_id === id || String(conv.doctor_id) === String(id)));
+    const isPatientMatch = callerIds.some(
+      (id) => conv.patient_id === id || String(conv.patient_id) === String(id),
+    );
+    const isDoctorMatch = callerIds.some(
+      (id) => conv.doctor_id === id || String(conv.doctor_id) === String(id),
+    );
 
-    if (identity.senderType === 'PATIENT' && isPatientMatch) {
-      return { conversation: conv, senderType: 'PATIENT' };
-    }
-    if (identity.senderType === 'DOCTOR' && isDoctorMatch) {
-      return { conversation: conv, senderType: 'DOCTOR' };
-    }
     if (isPatientMatch) {
       return { conversation: conv, senderType: 'PATIENT' };
     }

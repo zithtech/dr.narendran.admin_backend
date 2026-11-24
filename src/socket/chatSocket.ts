@@ -21,17 +21,17 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
 
   // Multi-device presence tracking
   presenceManager.addUserSocket(userId, socket.id);
-  if (user.patientId && user.patientId !== userId) {
+  if (user?.patientId && user.patientId !== userId) {
     presenceManager.addUserSocket(user.patientId, socket.id);
   }
-  if (user.doctorId && user.doctorId !== userId) {
+  if (user?.doctorId && user.doctorId !== userId) {
     presenceManager.addUserSocket(user.doctorId, socket.id);
   }
 
   // Join personal user room for direct events
   void socket.join(getUserRoom(userId));
-  if (user.patientId) void socket.join(getUserRoom(user.patientId));
-  if (user.doctorId) void socket.join(getUserRoom(user.doctorId));
+  if (user?.patientId) void socket.join(getUserRoom(user.patientId));
+  if (user?.doctorId) void socket.join(getUserRoom(user.doctorId));
 
   // Catch up undelivered messages for this newly connected user
   void (async () => {
@@ -93,10 +93,10 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
 
       // Register presence for active conversation
       presenceManager.joinConversation(userId, socket.id, conversationId);
-      if (user.patientId && user.patientId !== userId) {
+      if (user?.patientId && user.patientId !== userId) {
         presenceManager.joinConversation(user.patientId, socket.id, conversationId);
       }
-      if (user.doctorId && user.doctorId !== userId) {
+      if (user?.doctorId && user.doctorId !== userId) {
         presenceManager.joinConversation(user.doctorId, socket.id, conversationId);
       }
 
@@ -149,10 +149,10 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
       void socket.leave(`conversation:${conversationId}`);
 
       presenceManager.leaveConversation(userId, socket.id, conversationId);
-      if (user.patientId && user.patientId !== userId) {
+      if (user?.patientId && user.patientId !== userId) {
         presenceManager.leaveConversation(user.patientId, socket.id, conversationId);
       }
-      if (user.doctorId && user.doctorId !== userId) {
+      if (user?.doctorId && user.doctorId !== userId) {
         presenceManager.leaveConversation(user.doctorId, socket.id, conversationId);
       }
 
@@ -175,10 +175,10 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
   socket.on('chat:heartbeat', (data: { conversationId: string }) => {
     if (data?.conversationId) {
       presenceManager.heartbeat(userId, socket.id, data.conversationId);
-      if (user.patientId && user.patientId !== userId) {
+      if (user?.patientId && user.patientId !== userId) {
         presenceManager.heartbeat(user.patientId, socket.id, data.conversationId);
       }
-      if (user.doctorId && user.doctorId !== userId) {
+      if (user?.doctorId && user.doctorId !== userId) {
         presenceManager.heartbeat(user.doctorId, socket.id, data.conversationId);
       }
     }
@@ -352,8 +352,11 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
             '[Chat] Recipient not viewing chat - dispatching FCM',
           );
 
-          const isDoctorSender = senderType === 'DOCTOR';
-          const notificationTitle = isDoctorSender
+          const isDoctorSender = senderRole === 'doctor' || senderType === 'DOCTOR';
+          const isAdminSender = senderRole === 'admin' || senderRole === 'master_admin';
+          const notificationTitle = isAdminSender
+            ? 'New message from Hospital Administration'
+            : isDoctorSender
             ? 'New message from your doctor'
             : 'New message from your patient';
           const notificationBody = 'You have a new message.';
@@ -587,10 +590,10 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
   // --- disconnect ---
   socket.on('disconnect', () => {
     presenceManager.removeUserSocket(userId, socket.id);
-    if (user.patientId && user.patientId !== userId) {
+    if (user?.patientId && user.patientId !== userId) {
       presenceManager.removeUserSocket(user.patientId, socket.id);
     }
-    if (user.doctorId && user.doctorId !== userId) {
+    if (user?.doctorId && user.doctorId !== userId) {
       presenceManager.removeUserSocket(user.doctorId, socket.id);
     }
     logger.debug({ userId, socketId: socket.id }, '[Chat] Socket disconnected, presence cleared');

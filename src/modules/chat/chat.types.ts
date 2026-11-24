@@ -4,13 +4,15 @@ export type ConversationStatus = 'ACTIVE' | 'ARCHIVED' | 'BLOCKED';
 
 export interface ChatDoctor {
   id: string;
-  user_account_id?: string;
-  userAccountId?: string;
+  user_account_id?: string | undefined;
+  userAccountId?: string | undefined;
   name: string;
   specialization: string;
   specialty?: string | undefined;
   profile_image_url?: string | undefined;
   avatar_url?: string | undefined;
+  phone?: string | undefined;
+  email?: string | undefined;
   is_online: boolean;
   online_status: 'online' | 'offline';
   last_message?: string | undefined;
@@ -18,9 +20,39 @@ export interface ChatDoctor {
   unread_count?: number | undefined;
 }
 
+export interface ChatRecipient {
+  id: string;
+  name: string;
+  role: 'DOCTOR' | 'PATIENT' | 'ADMIN' | 'STAFF' | string;
+  subtitle?: string | undefined;
+  specialization?: string | undefined;
+  specialty?: string | undefined;
+  phone?: string | undefined;
+  email?: string | undefined;
+  avatar_url?: string | undefined;
+  profile_image_url?: string | undefined;
+  is_online?: boolean | undefined;
+  online_status?: 'online' | 'offline' | undefined;
+  unread_count?: number | undefined;
+  last_message?: string | undefined;
+  last_message_at?: string | undefined;
+  user_account_id?: string | undefined;
+  gender?: string | undefined;
+  age?: number | string | undefined;
+  status?: string | undefined;
+}
+
+export type RecipientCategory = 'doctors' | 'patients' | 'others';
+
+export interface CategorizedRecipients {
+  doctors?: ChatRecipient[] | undefined;
+  patients?: ChatRecipient[] | undefined;
+  others?: ChatRecipient[] | undefined;
+}
+
 export interface ChatConversation {
   id: string;
-  conversation_id?: string;
+  conversation_id?: string | undefined;
   patient_id: string;
   doctor_id: string;
   status: ConversationStatus;
@@ -42,10 +74,18 @@ export interface ChatConversation {
   profile_image_url?: string | undefined;
   patient_online?: boolean | undefined;
   patient_phone?: string | undefined;
+  // Recipient / peer details for unified Web and Mobile UI
+  recipient_id?: string | undefined;
+  recipient_name?: string | undefined;
+  recipient_avatar?: string | undefined;
+  recipient_role?: string | undefined;
+  other_participant_name?: string | undefined;
+  name?: string | undefined;
+  avatar_url?: string | undefined;
+  is_online?: boolean | undefined;
   unread_count: number;
-  unreadCount?: number;
+  unreadCount?: number | undefined;
 }
-
 
 export interface ChatMessage {
   id: string;
@@ -53,11 +93,16 @@ export interface ChatMessage {
   conversationId?: string | undefined;
   sender_id: string;
   senderId?: string | undefined;
+  sender_role?: string | undefined;
+  senderRole?: string | undefined;
   sender_type: SenderType;
   senderType?: SenderType | undefined;
+  recipient_id?: string | undefined;
+  recipientId?: string | undefined;
   message_type: string;
   messageType?: string | undefined;
   message: string;
+  content?: string | undefined;
   status: MessageStatus;
   sent_at: string;
   sentAt?: string | undefined;
@@ -115,7 +160,11 @@ export interface QuotedMessagePreview {
 
 export interface CreateConversationInput {
   doctor_id?: string | undefined;
+  doctorId?: string | undefined;
   patient_id?: string | undefined;
+  patientId?: string | undefined;
+  recipient_id?: string | undefined;
+  recipientId?: string | undefined;
 }
 
 export interface SendMessageInput {

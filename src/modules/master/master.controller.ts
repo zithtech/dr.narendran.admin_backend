@@ -198,10 +198,28 @@ export const MasterController = {
         data: result,
       });
     } catch (err: any) {
-      console.error('Create tenant failed:', err);
-      res
-        .status(500)
-        .json({ error: 'Failed to create tenant', details: err.message });
+      if (err instanceof z.ZodError) {
+        return void res
+          .status(400)
+          .json({ error: err.issues[0]?.message || 'Invalid input data' });
+      }
+
+      const statusCode = err.statusCode || (err.code === '23505' ? 409 : 500);
+      const errorMessage =
+        err.code === '23505'
+          ? `Database name "${req.body?.databaseName}" already exists. Please choose a different database name.`
+          : err.message || 'Failed to create tenant';
+
+      if (statusCode >= 500) {
+        console.error('Create tenant failed:', err);
+      } else {
+        console.warn(`Create tenant rejected [${statusCode}]:`, errorMessage);
+      }
+
+      res.status(statusCode).json({
+        error: errorMessage,
+        details: err.details || err.message,
+      });
     }
   },
 

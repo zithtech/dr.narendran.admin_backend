@@ -89,6 +89,8 @@ export function buildApp(): Express {
   /* Route-specific body parsers for large payloads */
   app.use('/api/prescription-templates', express.json({ limit: '15mb' }));
   app.use('/api/prescription-templates', express.urlencoded({ extended: false, limit: '15mb' }));
+  app.use('/api/prescriptions/render-pdf', express.json({ limit: '15mb' }));
+  app.use('/api/prescriptions/render-pdf', express.urlencoded({ extended: false, limit: '15mb' }));
 
   app.use(express.json({ limit: '100kb' }));
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));

@@ -10,22 +10,80 @@ export class ChatController {
       const speciality = req.query['speciality'] as string | undefined;
       const search = (req.query['search'] || req.query['q']) as string | undefined;
       const currentUserId = req.user?.id;
-
-      let patientId: string | undefined = undefined;
-      if (currentUserId && req.user?.role === 'patient') {
-        const identity = await chatService.resolveUserIdentity(currentUserId, 'patient');
-        patientId = identity.patientId;
-      }
+      const role = req.user?.role;
 
       const doctors = await chatService.getDoctors(
         speciality,
         search,
-        patientId,
+        currentUserId,
+        role,
       );
 
       res.status(200).json({
         success: true,
         data: doctors,
+        doctors,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatients(req: Request, res: Response, next: NextFunction) {
+    try {
+      const search = (req.query['search'] || req.query['q']) as string | undefined;
+      const currentUserId = req.user!.id;
+      const role = req.user!.role;
+
+      const patients = await chatService.getPatients(search, currentUserId, role);
+
+      res.status(200).json({
+        success: true,
+        data: patients,
+        patients,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getOtherUsers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const search = (req.query['search'] || req.query['q']) as string | undefined;
+      const currentUserId = req.user!.id;
+      const role = req.user!.role;
+
+      const others = await chatService.getOtherUsers(search, currentUserId, role);
+
+      res.status(200).json({
+        success: true,
+        data: others,
+        users: others,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getRecipients(req: Request, res: Response, next: NextFunction) {
+    try {
+      const category = req.query['category'] as string | undefined;
+      const search = (req.query['search'] || req.query['q']) as string | undefined;
+      const speciality = req.query['speciality'] as string | undefined;
+      const currentUserId = req.user!.id;
+      const role = req.user!.role;
+
+      const recipients = await chatService.getRecipients(
+        currentUserId,
+        role,
+        category,
+        search,
+        speciality,
+      );
+
+      res.status(200).json({
+        success: true,
+        data: recipients,
       });
     } catch (error) {
       next(error);

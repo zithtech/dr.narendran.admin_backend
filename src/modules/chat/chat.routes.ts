@@ -13,6 +13,10 @@ const upload = multer({
 });
 
 chatRouter.get('/doctors', requireAuth, chatController.getDoctors);
+chatRouter.get('/patients', requireAuth, chatController.getPatients);
+chatRouter.get('/others', requireAuth, chatController.getOtherUsers);
+chatRouter.get('/admins', requireAuth, chatController.getOtherUsers);
+chatRouter.get('/recipients', requireAuth, chatController.getRecipients);
 chatRouter.get('/conversations', requireAuth, chatController.getConversations);
 chatRouter.post('/conversations', requireAuth, chatController.getOrCreateConversation);
 chatRouter.get(

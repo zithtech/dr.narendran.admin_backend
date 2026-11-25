@@ -1,11 +1,23 @@
 import { z } from 'zod';
 
+export const medicationSchema = z.object({
+  medicine_name: z.string().trim().optional().nullable().default(''),
+  dosage: z.string().trim().optional().nullable(),
+  frequency: z.string().trim().optional().nullable(),
+  route: z.string().trim().optional().nullable(),
+  started_date: z.string().trim().optional().nullable(),
+  stopped_date: z.string().trim().optional().nullable(),
+  reason: z.string().trim().optional().nullable(),
+  remarks: z.string().trim().optional().nullable(),
+}).passthrough();
+
 export const previousDiseaseSchema = z.object({
   disease_name: z.string().trim().optional().nullable().default(''),
   diagnosis_date: z.string().trim().optional().nullable(),
   treatment_details: z.string().trim().optional().nullable(),
   current_status: z.string().trim().optional().nullable(),
   remarks: z.string().trim().optional().nullable(),
+  medications: z.array(medicationSchema).optional().default([]),
 }).passthrough();
 
 export const surgerySchema = z.object({
@@ -45,17 +57,6 @@ export const allergiesSchema = z.object({
   medicine_allergies: z.string().trim().optional().nullable(),
   food_allergies: z.string().trim().optional().nullable(),
   other_allergies: z.string().trim().optional().nullable(),
-  remarks: z.string().trim().optional().nullable(),
-}).passthrough();
-
-export const medicationSchema = z.object({
-  medicine_name: z.string().trim().optional().nullable().default(''),
-  dosage: z.string().trim().optional().nullable(),
-  frequency: z.string().trim().optional().nullable(),
-  route: z.string().trim().optional().nullable(),
-  started_date: z.string().trim().optional().nullable(),
-  stopped_date: z.string().trim().optional().nullable(),
-  reason: z.string().trim().optional().nullable(),
   remarks: z.string().trim().optional().nullable(),
 }).passthrough();
 

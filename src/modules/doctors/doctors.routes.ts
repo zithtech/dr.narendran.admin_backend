@@ -34,6 +34,18 @@ doctorsRouter.put('/:doctorId/locations/:locationId', requireAuth, requirePermis
 doctorsRouter.delete('/:doctorId/locations/:locationId', requireAuth, requirePermission('LOCATIONS', 'delete', ['DOCTORS']), DoctorsController.adminDeleteDoctorLocation);
 doctorsRouter.put('/:doctorId/locations/:locationId/primary', requireAuth, requirePermission('LOCATIONS', 'update', ['DOCTORS']), DoctorsController.adminSetPrimaryLocation);
 
+// Doctor Code Settings Endpoints (Must be defined before /:id)
+doctorsRouter.get(
+  '/settings',
+  requirePermission('DOCTORS', 'read', ['SETTINGS']),
+  DoctorsController.getSettings,
+);
+doctorsRouter.put(
+  '/settings',
+  requirePermission('DOCTORS', 'update', ['SETTINGS']),
+  DoctorsController.updateSettings,
+);
+
 // Doctor Catalog & Management
 doctorsRouter.get(
   '/',

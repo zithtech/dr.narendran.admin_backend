@@ -171,3 +171,16 @@ export const doctorSchema = z.object({
 });
 
 export type DoctorInput = z.infer<typeof doctorSchema>;
+
+export const doctorSettingsUpdateSchema = z.object({
+  hospital_id: z.string().uuid('Invalid hospital ID'),
+  prefix: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .length(3, 'Doctor Code prefix must be exactly three characters')
+    .regex(/^[A-Z]{3}$/, 'Doctor Code prefix can only contain English letters'),
+});
+
+export type DoctorSettingsUpdateInput = z.infer<typeof doctorSettingsUpdateSchema>;
+

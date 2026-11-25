@@ -68,13 +68,13 @@ export const DEFAULT_STATIC_HTML_TEMPLATE = `<!DOCTYPE html>
     }
 
     .rx-header-left {
-      width: 61%;
+      width: 46%;
       padding-left: 3mm;
     }
 
     .rx-header-right {
-      width: 39%;
-      padding-left: 2mm;
+      width: 54%;
+      padding-left: 3mm;
       padding-right: 2mm;
     }
 
@@ -87,25 +87,39 @@ export const DEFAULT_STATIC_HTML_TEMPLATE = `<!DOCTYPE html>
     }
 
     .rx-doctor-name {
-      margin: 0 0 1.5mm;
-      font-size: 18px;
-      line-height: 1.15;
+      margin: 0 0 1.2mm;
+      font-size: 15px;
+      line-height: 1.2;
       font-weight: 700;
       color: #67358f;
-      white-space: nowrap;
+      white-space: normal;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
 
     .rx-doctor-qualification {
-      margin: 0 0 2.8mm;
-      font-size: 11.5px;
-      line-height: 1.2;
+      margin: 0 0 1.2mm;
+      font-size: 10.5px;
+      line-height: 1.25;
       color: #222;
+      font-weight: 600;
+      white-space: normal;
+      word-wrap: break-word;
+    }
+
+    .rx-doctor-specialization {
+      margin: 0 0 1.5mm;
+      font-size: 10px;
+      line-height: 1.25;
+      color: #475569;
       font-weight: 500;
+      white-space: normal;
+      word-wrap: break-word;
     }
 
     .rx-reg {
       margin: 0;
-      font-size: 11.5px;
+      font-size: 10.5px;
       line-height: 1.2;
       color: #67358f;
       font-weight: 700;
@@ -620,10 +634,14 @@ export const DEFAULT_STATIC_HTML_TEMPLATE = `<!DOCTYPE html>
 
         <div class="rx-header-right">
           <div class="rx-doctor-name">
-            Dr. {{doctor_name}}, {{doctor_qualification}}
+            Dr. {{doctor_name}}
           </div>
 
           <div class="rx-doctor-qualification">
+            {{doctor_qualification}}
+          </div>
+
+          <div class="rx-doctor-specialization">
             {{doctor_specialization}}
           </div>
 
@@ -1367,6 +1385,16 @@ export class PrescriptionTemplatesService {
     };
 
     let rendered = templateHtml;
+
+    // Header normalization: ensure white-space: nowrap is never applied to doctor credentials and split name/qualifications cleanly
+    rendered = rendered.replace(
+      /\.rx-doctor-name\s*\{([^}]*?)white-space:\s*nowrap;?/gi,
+      '.rx-doctor-name {$1white-space: normal; word-wrap: break-word; overflow-wrap: break-word;'
+    );
+    rendered = rendered.replace(
+      /<div\s+class=["']rx-doctor-name["']>\s*Dr\.\s*\{\{doctor_name\}\},\s*\{\{doctor_qualification\}\}\s*<\/div>\s*<div\s+class=["']rx-doctor-qualification["']>\s*\{\{doctor_specialization\}\}\s*<\/div>/i,
+      `<div class="rx-doctor-name">Dr. {{doctor_name}}</div>\n          <div class="rx-doctor-qualification">{{doctor_qualification}}</div>\n          <div class="rx-doctor-specialization">{{doctor_specialization}}</div>`
+    );
 
     // Handle {{#section}}...{{/section}} with loop for nesting
     let prevRendered = "";

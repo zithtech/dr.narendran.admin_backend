@@ -65,12 +65,12 @@
     }
 
     .rx-header-left {
-      width: 61%;
+      width: 46%;
       padding-left: 3mm;
     }
 
     .rx-header-right {
-      width: 39%;
+      width: 54%;
       padding-left: 2mm;
       padding-right: 2mm;
     }
@@ -84,20 +84,34 @@
     }
 
     .rx-doctor-name {
-      margin: 0 0 1.5mm;
-      font-size: 18px;
-      line-height: 1.15;
+      margin: 0 0 1.2mm;
+      font-size: 15px;
+      line-height: 1.2;
       font-weight: 700;
       color: #67358f;
-      white-space: nowrap;
+      white-space: normal;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
 
     .rx-doctor-qualification {
-      margin: 0 0 2.8mm;
-      font-size: 11.5px;
-      line-height: 1.2;
+      margin: 0 0 1.2mm;
+      font-size: 10.5px;
+      line-height: 1.25;
       color: #222;
+      font-weight: 600;
+      white-space: normal;
+      word-wrap: break-word;
+    }
+
+    .rx-doctor-specialization {
+      margin: 0 0 1.5mm;
+      font-size: 10px;
+      line-height: 1.25;
+      color: #475569;
       font-weight: 500;
+      white-space: normal;
+      word-wrap: break-word;
     }
 
     .rx-reg {
@@ -617,10 +631,14 @@
 
         <div class="rx-header-right">
           <div class="rx-doctor-name">
-            Dr. {{doctor_name}}, {{doctor_qualification}}
+            Dr. {{doctor_name}}
           </div>
 
           <div class="rx-doctor-qualification">
+            {{doctor_qualification}}
+          </div>
+
+          <div class="rx-doctor-specialization">
             {{doctor_specialization}}
           </div>
 

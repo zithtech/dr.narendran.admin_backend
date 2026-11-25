@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 
 import { ForbiddenError } from "@/http/errors.js";
 
+import { PrescriptionTemplatesService } from "../prescription_templates/prescription_templates.service.js";
 import { prescriptionsService } from "./prescriptions.service.js";
 
 export const PrescriptionsController = {
@@ -198,6 +199,29 @@ export const PrescriptionsController = {
       res.send(html);
     } catch (err: any) {
       res.status(500).json({ error: "Failed to generate prescription HTML", details: err.message });
+    }
+  },
+
+  async renderHtmlToPdf(req: Request, res: Response) {
+    try {
+      const rawHtml = typeof req.body?.html === 'string' ? req.body.html : '';
+      if (!rawHtml || !rawHtml.trim()) {
+        res.status(400).json({ error: "HTML content is required to render PDF" });
+        return;
+      }
+      const html = rawHtml.replace(/\bDr\.?\s+Dr\.?\s+/gi, 'Dr. ');
+      const rawFilename = typeof req.body?.filename === 'string' && req.body.filename.trim()
+        ? req.body.filename.trim()
+        : 'clinical_dossier.pdf';
+      const safeFilename = rawFilename.replace(/["\r\n]/g, "");
+
+      const pdfBuffer = await PrescriptionTemplatesService.generatePdfBuffer(html);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+      res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
+      res.send(pdfBuffer);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to render PDF", details: err.message });
     }
   },
 };

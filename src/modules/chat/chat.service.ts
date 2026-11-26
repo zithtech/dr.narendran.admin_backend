@@ -938,17 +938,39 @@ export class ChatService {
       'image/gif',
       'image/jpg',
       'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/plain',
+    ];
+
+    const ext = (file.fileName.toLowerCase().split('.').pop() || '').trim();
+    const allowedExts = [
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+      'pdf',
+      'doc',
+      'docx',
+      'xls',
+      'xlsx',
+      'csv',
+      'txt',
     ];
 
     const normalizedMime = (file.mimeType || '').toLowerCase();
     const isAllowed =
       allowedMimes.includes(normalizedMime) ||
       normalizedMime.startsWith('image/') ||
-      file.fileName.toLowerCase().endsWith('.pdf');
+      allowedExts.includes(ext);
 
     if (!isAllowed) {
       throw new ValidationError(
-        'Invalid file type. Only JPG, PNG, WEBP, and PDF files are allowed.',
+        'Invalid file type. Only images (JPG, PNG, WEBP), documents (PDF, DOC, DOCX), and spreadsheets (XLS, XLSX, CSV) are allowed.',
       );
     }
 
@@ -959,15 +981,31 @@ export class ChatService {
 
     const safeFileName = file.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storageKey = `chat/${conversationId}/${Date.now()}_${safeFileName}`;
-    const contentType =
-      normalizedMime.includes('pdf') || file.fileName.toLowerCase().endsWith('.pdf')
-        ? 'application/pdf'
-        : normalizedMime || 'image/jpeg';
+    let contentType = normalizedMime;
+    if (!contentType || contentType === 'application/octet-stream') {
+      if (ext === 'pdf') contentType = 'application/pdf';
+      else if (ext === 'doc') contentType = 'application/msword';
+      else if (ext === 'docx') contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      else if (ext === 'xls') contentType = 'application/vnd.ms-excel';
+      else if (ext === 'xlsx') contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      else if (ext === 'csv') contentType = 'text/csv';
+      else if (ext === 'png') contentType = 'image/png';
+      else if (ext === 'webp') contentType = 'image/webp';
+      else if (ext === 'jpg' || ext === 'jpeg') contentType = 'image/jpeg';
+      else contentType = 'application/octet-stream';
+    }
 
     await s3Service.uploadBuffer(storageKey, file.buffer, contentType);
     const signedUrl = await s3Service.getReadUrl(storageKey, 86400);
 
-    const messageType = contentType === 'application/pdf' ? 'PDF' : 'IMAGE';
+    let messageType = 'DOCUMENT';
+    if (normalizedMime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+      messageType = 'IMAGE';
+    } else if (normalizedMime.includes('pdf') || ext === 'pdf') {
+      messageType = 'PDF';
+    } else if (['xls', 'xlsx', 'csv'].includes(ext) || normalizedMime.includes('excel') || normalizedMime.includes('spreadsheet') || normalizedMime.includes('csv')) {
+      messageType = 'SPREADSHEET';
+    }
     const messageText = caption && caption.trim().length > 0 ? caption.trim() : file.fileName;
 
     const savedMessage = await chatRepo.saveMessage(

@@ -278,6 +278,63 @@ describe('Chat Attachments Unit Tests', () => {
     expect(result.mimeType).toBe('application/pdf');
   });
 
+  it('successfully uploads and stores DOCX documents and spreadsheet attachments (XLSX, CSV)', async () => {
+    vi.spyOn(chatService, 'authorizeConversation').mockResolvedValue({
+      conversation: {
+        id: CONVERSATION_ID,
+        doctor_id: DOCTOR_USER_ID,
+        patient_id: PATIENT_USER_ID,
+        status: 'ACTIVE',
+        created_at: '2026-01-01',
+        updated_at: '2026-01-01',
+        unread_count: 0,
+      },
+      senderType: 'DOCTOR',
+    });
+    vi.spyOn(chatService, 'getRecipientUserId').mockResolvedValue(PATIENT_USER_ID);
+
+    vi.mocked(chatRepo.saveMessage).mockResolvedValue({
+      id: 'msg-doc-1',
+      conversation_id: CONVERSATION_ID,
+      sender_id: DOCTOR_USER_ID,
+      sender_type: 'DOCTOR',
+      message_type: 'SPREADSHEET',
+      message: 'metrics.xlsx',
+      status: 'SENT',
+      sent_at: '2026-10-16T12:00:00Z',
+      created_at: '2026-10-16T12:00:00Z',
+      updated_at: '2026-10-16T12:00:00Z',
+      attachment_url: 'https://signed.s3.com/chat/1111/metrics.xlsx',
+      attachment_name: 'metrics.xlsx',
+      attachment_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      attachment_size: 1024 * 80,
+      storage_key: 'chat/1111/metrics.xlsx',
+    });
+
+    const file = {
+      buffer: Buffer.from('fake-excel-data'),
+      fileName: 'metrics.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      fileSize: 1024 * 80,
+    };
+
+    const result = await chatService.uploadAttachment(
+      CONVERSATION_ID,
+      DOCTOR_USER_ID,
+      'doctor',
+      file,
+      'Lab metrics spreadsheet',
+    );
+
+    expect(s3Service.uploadBuffer).toHaveBeenCalledWith(
+      expect.stringContaining('metrics.xlsx'),
+      file.buffer,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(result.message_type).toBe('SPREADSHEET');
+    expect(result.attachment_name).toBe('metrics.xlsx');
+  });
+
   it('throws NotFoundError when accessing attachment for nonexistent message', async () => {
     vi.spyOn(chatService, 'authorizeConversation').mockResolvedValue({
       conversation: {

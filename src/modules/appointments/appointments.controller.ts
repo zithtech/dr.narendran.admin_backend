@@ -692,6 +692,7 @@ export async function savePrescription(req: Request, res: Response): Promise<voi
            d.phone AS doctor_phone,
            d.email AS doctor_email,
            d.clinic_address AS doctor_clinic_address,
+           d.hospital_id AS hospital_id,
            d.branch_id AS branch_id,
            h.name AS hospital_name,
            h.address AS hospital_address,
@@ -716,7 +717,13 @@ export async function savePrescription(req: Request, res: Response): Promise<voi
     if (!isUpload && !finalPrescriptionUrl) {
       try {
         const { PrescriptionTemplatesService } = await import('@/modules/prescription_templates/prescription_templates.service.js');
-        const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate();
+        const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate(meta.hospital_id, meta.branch_id);
+
+        const headerSection = (activeTemplate.layout_config?.sections || []).find(
+          (s: any) => s.id === 'sec_header' || s.type === 'HEADER_LETTERHEAD'
+        );
+        const templateCustomLogo = headerSection?.props?.customLogoUrl || null;
+        const resolvedHospitalLogo = templateCustomLogo || meta.hospital_logo || null;
 
         let labDetailsMap: Record<string, any> = {};
         const labIds = (labTests || []).map((l: any) => l.labId || l.lab_id).filter(Boolean);
@@ -738,6 +745,7 @@ export async function savePrescription(req: Request, res: Response): Promise<voi
             address: meta.hospital_address || '',
             phone: meta.hospital_phone || '+91 44 2829 0000',
             email: meta.hospital_email || '',
+            logo_url: resolvedHospitalLogo,
           },
           branch: {
             name: meta.branch_name || '',
@@ -1962,7 +1970,9 @@ export async function downloadPrescriptionPdf(req: Request, res: Response): Prom
         h.email as hospital_email,
         hb.name as branch_name,
         hb.address as branch_address,
-        hb.phone as branch_phone
+        hb.phone as branch_phone,
+        d.hospital_id as hospital_id,
+        d.branch_id as branch_id
      FROM prescriptions p
      LEFT JOIN patients pat ON p.patient_id = pat.id
      LEFT JOIN appointments a ON p.appointment_id = a.id
@@ -2033,7 +2043,7 @@ export async function downloadPrescriptionPdf(req: Request, res: Response): Prom
       [p.id],
     );
 
-    const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate();
+    const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate(p.hospital_id, p.branch_id);
 
     const dataContext = {
       hospital: {

@@ -1,5 +1,9 @@
+import fs from "node:fs";
+import path from "node:path";
 import puppeteer from "puppeteer";
 import { pool } from "@/db/pool.js";
+import { s3Service } from "@/modules/s3/s3.service.js";
+import { logger } from "@/lib/logger.js";
 
 export const DEFAULT_STATIC_HTML_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
@@ -901,33 +905,263 @@ export const DEFAULT_STATIC_HTML_TEMPLATE = `<!DOCTYPE html>
 </html>
 `;
 
+export const DEFAULT_ANNAAMALAI_LOGO_BASE64 = "data:image/png;base64,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";
+
 export class PrescriptionTemplatesService {
   /**
-   * Fetches active prescription template from the database
+   * Resolves an image source (local file, storage key, S3 URL, proxy URL, or remote URL)
+   * to a Buffer and MIME type for offline/sandboxed PDF embedding.
    */
-  public static async getActiveTemplate(): Promise<{
+  public static async resolveImageBuffer(src: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    if (!src || typeof src !== "string") return null;
+    const cleanSrc = src.trim();
+    if (!cleanSrc || cleanSrc === "null" || cleanSrc === "undefined") return null;
+
+    // 1. Data URL
+    if (cleanSrc.startsWith("data:")) {
+      const match = cleanSrc.match(/^data:([a-zA-Z0-9/+-]+);base64,(.+)$/s);
+      if (match && match[1] && match[2]) {
+        return {
+          mimeType: match[1],
+          buffer: Buffer.from(match[2], "base64"),
+        };
+      }
+      return null;
+    }
+
+    // 2. Extract key from proxy URL, e.g. /api/proxy/image?key=... or ?url=...
+    let target = cleanSrc;
+    if (target.includes("/api/proxy/image")) {
+      try {
+        const parsed = new URL(target, "http://localhost");
+        const keyParam = parsed.searchParams.get("key");
+        const urlParam = parsed.searchParams.get("url");
+        if (keyParam) target = keyParam;
+        else if (urlParam) target = urlParam;
+      } catch {}
+    }
+
+    // 3. Extract key from S3 URL or localhost URL
+    if (target.startsWith("http://") || target.startsWith("https://")) {
+      try {
+        const parsed = new URL(target);
+        if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+          target = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+        } else if (parsed.hostname.includes("amazonaws.com") || parsed.hostname.includes("cloudflarestorage.com")) {
+          target = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+        }
+      } catch {}
+    }
+
+    const cleanKey = target.replace(/^\/+/, "");
+
+    // 4. Try local file resolution with s3Service and direct paths
+    try {
+      if (s3Service && typeof (s3Service as any).getLocalFilePath === "function") {
+        const localPath = (s3Service as any).getLocalFilePath(cleanKey);
+        if (localPath && fs.existsSync(localPath) && fs.statSync(localPath).isFile()) {
+          const buffer = await fs.promises.readFile(localPath);
+          const ext = path.extname(localPath).toLowerCase();
+          const mimeType = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : ext === ".svg" ? "image/svg+xml" : "image/png";
+          return { buffer, mimeType };
+        }
+      }
+    } catch {}
+
+    const localCandidates = [
+      cleanKey,
+      cleanKey.replace(/^uploads\//, ""),
+      path.join("uploads", cleanKey),
+      path.join("uploads", "uploads", cleanKey.replace(/^uploads\//, "")),
+      path.resolve(process.cwd(), cleanKey),
+      path.resolve(process.cwd(), "uploads", cleanKey),
+      path.resolve(process.cwd(), "uploads", "uploads", cleanKey.replace(/^uploads\//, "")),
+      path.resolve(process.cwd(), "..", "dr.narendran.admin_backend", "uploads", cleanKey),
+      path.resolve(process.cwd(), "..", "dr.narendran.admin_backend", "uploads", "uploads", cleanKey.replace(/^uploads\//, "")),
+    ];
+
+    for (const cand of localCandidates) {
+      if (cand && fs.existsSync(cand) && fs.statSync(cand).isFile()) {
+        const buffer = await fs.promises.readFile(cand);
+        const ext = path.extname(cand).toLowerCase();
+        const mimeType = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : ext === ".svg" ? "image/svg+xml" : "image/png";
+        return { buffer, mimeType };
+      }
+    }
+
+    // 5. Try S3 getObjectStream if available
+    try {
+      if (s3Service && typeof (s3Service as any).getObjectStream === "function") {
+        const { stream, contentType } = await (s3Service as any).getObjectStream(cleanKey);
+        const chunks: Buffer[] = [];
+        for await (const chunk of stream) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        if (chunks.length > 0) {
+          return { buffer: Buffer.concat(chunks), mimeType: contentType || "image/png" };
+        }
+      }
+    } catch {}
+
+    // 6. Network fetch fallback
+    if (cleanSrc.startsWith("http://") || cleanSrc.startsWith("https://")) {
+      try {
+        const res = await fetch(cleanSrc, { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const ab = await res.arrayBuffer();
+          const mimeType = res.headers.get("content-type") || "image/png";
+          return { buffer: Buffer.from(ab), mimeType };
+        }
+      } catch {}
+    }
+
+    return null;
+  }
+
+  /**
+   * Scans HTML for <img> tags and converts their sources into Base64 data URLs
+   * so that Puppeteer renders all images offline with 0% network dependency,
+   * completely eliminating broken image icons in downloaded PDFs.
+   */
+  public static async inlineImagesForPdf(html: string): Promise<string> {
+    if (!html || typeof html !== "string") return "";
+
+    const imgTagRegex = /<img\b([^>]*?)>/gi;
+    const matches: Array<{ fullTag: string; attrs: string }> = [];
+    let m: RegExpExecArray | null;
+    while ((m = imgTagRegex.exec(html)) !== null) {
+      matches.push({ fullTag: m[0], attrs: m[1] ?? "" });
+    }
+
+    let processedHtml = html;
+
+    for (const { fullTag, attrs } of matches) {
+      const srcMatch = attrs.match(/src=["']([^"']*)["']/i);
+      const rawSrc = srcMatch && srcMatch[1] ? srcMatch[1].trim() : "";
+
+      const isHospitalLogo =
+        attrs.includes("rx-logo") ||
+        attrs.includes("rx-logo-img") ||
+        /alt=["'][^"']*hospital\s*logo[^"']*["']/i.test(attrs) ||
+        /alt=["'][^"']*logo[^"']*["']/i.test(attrs);
+
+      let effectiveBase64 = "";
+
+      if (rawSrc && !rawSrc.includes("{{")) {
+        const imgData = await this.resolveImageBuffer(rawSrc);
+        if (imgData && imgData.buffer && imgData.buffer.length > 0) {
+          effectiveBase64 = `data:${imgData.mimeType};base64,${imgData.buffer.toString("base64")}`;
+        }
+      }
+
+      // If resolving failed or source was missing/placeholder:
+      if (!effectiveBase64) {
+        if (isHospitalLogo) {
+          effectiveBase64 = DEFAULT_ANNAAMALAI_LOGO_BASE64;
+        }
+      }
+
+      let newTag = fullTag;
+      if (effectiveBase64) {
+        if (srcMatch) {
+          newTag = newTag.replace(/src=["'][^"']*["']/i, `src="${effectiveBase64}"`);
+        } else {
+          newTag = newTag.replace(/<img\b/i, `<img src="${effectiveBase64}"`);
+        }
+
+        // Enforce aspect ratio and dimensions for hospital logo
+        if (isHospitalLogo) {
+          if (newTag.includes("style=")) {
+            newTag = newTag.replace(/style=["']([^"']*)["']/i, (_m, s: string) => {
+              let trimmed = s.trim();
+              if (!trimmed.endsWith(";")) trimmed += ";";
+              if (!trimmed.includes("object-fit")) trimmed += " object-fit: contain;";
+              if (!trimmed.includes("max-height")) trimmed += " max-height: 32mm;";
+              if (!trimmed.includes("max-width")) trimmed += " max-width: 77mm;";
+              if (!trimmed.includes("display")) trimmed += " display: block;";
+              return `style="${trimmed}"`;
+            });
+          } else {
+            newTag = newTag.replace(/<img\b/i, '<img style="max-width: 77mm; max-height: 32mm; width: auto; height: auto; object-fit: contain; object-position: left center; display: block;"');
+          }
+        }
+      } else {
+        // If image failed and not hospital logo, omit img tag to prevent broken image icon in PDF
+        newTag = `<!-- image omitted: ${escapeHtml(rawSrc)} -->`;
+      }
+
+      processedHtml = processedHtml.replace(fullTag, newTag);
+    }
+
+    return processedHtml;
+  }
+  /**
+   * Fetches active prescription template from the database with multi-tenant hospital/branch fallback
+   */
+  public static async getActiveTemplate(
+    hospitalId?: string | null,
+    branchId?: string | null
+  ): Promise<{
     id: string;
     name: string;
     description: string;
     html_content: string;
+    layout_config?: any;
     status: string;
     version: number;
+    hospital_id?: string | null;
+    branch_id?: string | null;
+    is_default?: boolean;
     updated_at: string;
   }> {
     try {
-      const res = await pool.query(
-        `SELECT id, name, description, html_content, status, COALESCE(version, 1)::int as version, updated_at
+      // 1. Check for branch-specific active template
+      if (branchId) {
+        const branchRes = await pool.query(
+          `SELECT id, name, description, html_content, layout_config, status,
+                  COALESCE(version, 1)::int as version, hospital_id, branch_id, is_default, updated_at
+           FROM prescription_templates
+           WHERE branch_id = $1 AND status = 'ACTIVE'
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+          [branchId]
+        );
+        if (branchRes.rowCount && branchRes.rowCount > 0) {
+          return branchRes.rows[0];
+        }
+      }
+
+      // 2. Check for hospital-specific active template
+      if (hospitalId) {
+        const hospRes = await pool.query(
+          `SELECT id, name, description, html_content, layout_config, status,
+                  COALESCE(version, 1)::int as version, hospital_id, branch_id, is_default, updated_at
+           FROM prescription_templates
+           WHERE hospital_id = $1 AND status = 'ACTIVE'
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+          [hospitalId]
+        );
+        if (hospRes.rowCount && hospRes.rowCount > 0) {
+          return hospRes.rows[0];
+        }
+      }
+
+      // 3. Fallback to system default template (hospital_id IS NULL or is_default = true)
+      const defaultRes = await pool.query(
+        `SELECT id, name, description, html_content, layout_config, status,
+                COALESCE(version, 1)::int as version, hospital_id, branch_id, is_default, updated_at
          FROM prescription_templates
-         WHERE status = 'ACTIVE'
-         ORDER BY updated_at DESC, created_at DESC
+         WHERE (hospital_id IS NULL OR is_default = true) AND status = 'ACTIVE'
+         ORDER BY is_default DESC, updated_at DESC
          LIMIT 1`
       );
 
-      if (res.rowCount && res.rowCount > 0) {
-        return res.rows[0];
+      if (defaultRes.rowCount && defaultRes.rowCount > 0) {
+        return defaultRes.rows[0];
       }
     } catch (e) {
-      // Ignore query error and fall back to static
+      // Fallback to static code default
     }
 
     return {
@@ -935,88 +1169,71 @@ export class PrescriptionTemplatesService {
       name: "Standard Prescription",
       description: "A4 prescription layout used by doctors.",
       html_content: DEFAULT_STATIC_HTML_TEMPLATE,
+      layout_config: null,
       status: "ACTIVE",
       version: 1,
+      hospital_id: null,
+      branch_id: null,
+      is_default: true,
       updated_at: new Date().toISOString(),
     };
   }
 
   /**
-   * Saves or updates a prescription template in the database
+   * Fetches all prescription templates scoped to a hospital or system
    */
-  public static async saveOrUpdateTemplate(data: {
-    id?: string;
-    name?: string;
-    description?: string;
-    html_content: string;
-    status?: string;
-  }): Promise<{
-    id: string;
-    name: string;
-    description: string;
-    html_content: string;
-    status: string;
-    version: number;
-    updated_at: string;
-  }> {
-    const { id, name = "Standard Prescription", description = "A4 prescription layout used by doctors.", html_content, status = "ACTIVE" } = data;
-
-    if (id) {
-      const existing = await pool.query("SELECT id, COALESCE(version, 1)::int as version FROM prescription_templates WHERE id = $1", [id]);
-      if (existing.rowCount && existing.rowCount > 0) {
-        const nextVersion = existing.rows[0].version + 1;
-        const res = await pool.query(
-          `UPDATE prescription_templates
-           SET name = $1, description = $2, html_content = $3, status = $4, version = $5, updated_at = NOW()
-           WHERE id = $6
-           RETURNING id, name, description, html_content, status, version, updated_at`,
-          [name, description, html_content, status, nextVersion, id]
-        );
-        return res.rows[0];
-      }
-    }
-
-    const existingActive = await pool.query("SELECT id, COALESCE(version, 1)::int as version FROM prescription_templates WHERE status = 'ACTIVE' ORDER BY updated_at DESC LIMIT 1");
-    if (existingActive.rowCount && existingActive.rowCount > 0) {
-      const activeId = existingActive.rows[0].id;
-      const nextVersion = existingActive.rows[0].version + 1;
-      const res = await pool.query(
-        `UPDATE prescription_templates
-         SET name = COALESCE($1, name), description = COALESCE($2, description), html_content = $3, status = $4, version = $5, updated_at = NOW()
-         WHERE id = $6
-         RETURNING id, name, description, html_content, status, version, updated_at`,
-        [name, description, html_content, status, nextVersion, activeId]
-      );
-      return res.rows[0];
-    }
-
-    const res = await pool.query(
-      `INSERT INTO prescription_templates (name, description, html_content, status, version, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 1, NOW(), NOW())
-       RETURNING id, name, description, html_content, status, version, updated_at`,
-      [name, description, html_content, status]
-    );
-    return res.rows[0];
-  }
-
-  /**
-   * Fetches all prescription templates
-   */
-  public static async getAllTemplates(): Promise<
+  public static async getAllTemplates(options?: {
+    hospitalId?: string | null;
+    status?: string | null;
+    search?: string | null;
+  }): Promise<
     Array<{
       id: string;
       name: string;
       description: string;
       html_content: string;
+      layout_config?: any;
       status: string;
+      version: number;
+      hospital_id?: string | null;
+      branch_id?: string | null;
+      is_default?: boolean;
+      created_at: string;
+      updated_at: string;
     }>
   > {
     try {
+      const { hospitalId, status, search } = options || {};
+      const conditions: string[] = [];
+      const params: any[] = [];
+
+      if (hospitalId) {
+        params.push(hospitalId);
+        conditions.push(`(hospital_id = $${params.length} OR hospital_id IS NULL)`);
+      }
+
+      if (status) {
+        params.push(status);
+        conditions.push(`status = $${params.length}`);
+      }
+
+      if (search && search.trim()) {
+        params.push(`%${search.trim()}%`);
+        conditions.push(`(name ILIKE $${params.length} OR description ILIKE $${params.length})`);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
       const res = await pool.query(
-        `SELECT id, name, description, html_content, status
+        `SELECT id, name, description, html_content, layout_config, status,
+                is_default, COALESCE(version, 1)::int as version,
+                hospital_id, branch_id, created_at, updated_at
          FROM prescription_templates
-         ORDER BY created_at DESC`
+         ${whereClause}
+         ORDER BY (status = 'ACTIVE') DESC, is_default DESC, updated_at DESC, created_at DESC`,
+        params
       );
+
       if (res.rowCount && res.rowCount > 0) {
         return res.rows;
       }
@@ -1030,23 +1247,436 @@ export class PrescriptionTemplatesService {
         name: "Standard Prescription",
         description: "A4 prescription layout used by doctors.",
         html_content: DEFAULT_STATIC_HTML_TEMPLATE,
+        layout_config: null,
         status: "ACTIVE",
+        version: 1,
+        hospital_id: null,
+        branch_id: null,
+        is_default: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       },
     ];
+  }
+
+  /**
+   * Fetches a single prescription template by ID
+   */
+  public static async getTemplateById(
+    id: string,
+    hospitalId?: string | null
+  ): Promise<{
+    id: string;
+    name: string;
+    description: string;
+    html_content: string;
+    layout_config?: any;
+    status: string;
+    version: number;
+    hospital_id?: string | null;
+    branch_id?: string | null;
+    is_default?: boolean;
+    created_at: string;
+    updated_at: string;
+  } | null> {
+    const res = await pool.query(
+      `SELECT id, name, description, html_content, layout_config, status,
+              is_default, COALESCE(version, 1)::int as version,
+              hospital_id, branch_id, created_at, updated_at
+       FROM prescription_templates
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (!res.rowCount || res.rowCount === 0) {
+      if (id === "default-standard-a4") {
+        return {
+          id: "default-standard-a4",
+          name: "Standard Prescription",
+          description: "A4 prescription layout used by doctors.",
+          html_content: DEFAULT_STATIC_HTML_TEMPLATE,
+          layout_config: null,
+          status: "ACTIVE",
+          version: 1,
+          hospital_id: null,
+          branch_id: null,
+          is_default: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+      }
+      return null;
+    }
+
+    const row = res.rows[0];
+    if (hospitalId && row.hospital_id && row.hospital_id !== hospitalId) {
+      throw new Error("Access denied: Template belongs to another hospital.");
+    }
+
+    return row;
+  }
+
+  /**
+   * Creates a new prescription template
+   */
+  public static async createTemplate(data: {
+    name: string;
+    description?: string;
+    html_content: string;
+    layout_config?: any;
+    status?: string;
+    hospital_id?: string | null;
+    branch_id?: string | null;
+    is_default?: boolean;
+    user_id?: string | null;
+  }): Promise<any> {
+    const {
+      name,
+      description = "A4 prescription layout used by doctors.",
+      html_content,
+      layout_config = null,
+      status = "DRAFT",
+      hospital_id = null,
+      branch_id = null,
+      is_default = false,
+      user_id = null,
+    } = data;
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // If marked ACTIVE, deactivate existing active templates for this hospital/branch
+      if (status === "ACTIVE") {
+        if (hospital_id) {
+          await client.query(
+            `UPDATE prescription_templates
+             SET status = 'ARCHIVED', updated_at = NOW()
+             WHERE hospital_id = $1 AND status = 'ACTIVE'`,
+            [hospital_id]
+          );
+        } else {
+          await client.query(
+            `UPDATE prescription_templates
+             SET status = 'ARCHIVED', updated_at = NOW()
+             WHERE hospital_id IS NULL AND status = 'ACTIVE'`
+          );
+        }
+      }
+
+      const res = await client.query(
+        `INSERT INTO prescription_templates (
+          name, description, html_content, layout_config, status,
+          version, hospital_id, branch_id, is_default, created_by, updated_by,
+          created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9, $9, NOW(), NOW())
+        RETURNING id, name, description, html_content, layout_config, status, version,
+                  hospital_id, branch_id, is_default, created_at, updated_at`,
+        [name, description, html_content, layout_config, status, hospital_id, branch_id, is_default, user_id]
+      );
+
+      await client.query("COMMIT");
+      return res.rows[0];
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Saves or updates a prescription template in the database
+   */
+  public static async saveOrUpdateTemplate(data: {
+    id?: string;
+    name?: string;
+    description?: string;
+    html_content: string;
+    layout_config?: any;
+    status?: string;
+    hospital_id?: string | null;
+    branch_id?: string | null;
+    user_id?: string | null;
+  }): Promise<{
+    id: string;
+    name: string;
+    description: string;
+    html_content: string;
+    layout_config?: any;
+    status: string;
+    version: number;
+    hospital_id?: string | null;
+    branch_id?: string | null;
+    is_default?: boolean;
+    updated_at: string;
+  }> {
+    const {
+      id,
+      name = "Standard Prescription",
+      description = "A4 prescription layout used by doctors.",
+      html_content,
+      layout_config = null,
+      status = "ACTIVE",
+      hospital_id = null,
+      branch_id = null,
+      user_id = null,
+    } = data;
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // 1. Update existing template if ID is provided
+      if (id && id !== "default-standard-a4") {
+        const existing = await client.query(
+          "SELECT id, hospital_id, COALESCE(version, 1)::int as version FROM prescription_templates WHERE id = $1",
+          [id]
+        );
+        if (existing.rowCount && existing.rowCount > 0) {
+          const targetHospitalId = hospital_id ?? existing.rows[0].hospital_id;
+          if (status === "ACTIVE") {
+            if (targetHospitalId) {
+              await client.query(
+                `UPDATE prescription_templates
+                 SET status = 'ARCHIVED', updated_at = NOW()
+                 WHERE hospital_id = $1 AND status = 'ACTIVE' AND id != $2`,
+                [targetHospitalId, id]
+              );
+            } else {
+              await client.query(
+                `UPDATE prescription_templates
+                 SET status = 'ARCHIVED', updated_at = NOW()
+                 WHERE hospital_id IS NULL AND status = 'ACTIVE' AND id != $1`,
+                [id]
+              );
+            }
+          }
+
+          const nextVersion = existing.rows[0].version + 1;
+          const res = await client.query(
+            `UPDATE prescription_templates
+             SET name = $1, description = $2, html_content = $3, layout_config = COALESCE($4, layout_config),
+                 status = $5, version = $6, hospital_id = COALESCE($7, hospital_id),
+                 branch_id = COALESCE($8, branch_id), updated_by = $9, updated_at = NOW()
+             WHERE id = $10
+             RETURNING id, name, description, html_content, layout_config, status, version,
+                       hospital_id, branch_id, is_default, updated_at`,
+            [name, description, html_content, layout_config, status, nextVersion, hospital_id, branch_id, user_id, id]
+          );
+
+          await client.query("COMMIT");
+          return res.rows[0];
+        }
+      }
+
+      // 2. Look for current active template for this hospital
+      const existingActiveQuery = hospital_id
+        ? "SELECT id, COALESCE(version, 1)::int as version FROM prescription_templates WHERE hospital_id = $1 AND status = 'ACTIVE' ORDER BY updated_at DESC LIMIT 1"
+        : "SELECT id, COALESCE(version, 1)::int as version FROM prescription_templates WHERE hospital_id IS NULL AND status = 'ACTIVE' ORDER BY updated_at DESC LIMIT 1";
+      const existingActiveParams = hospital_id ? [hospital_id] : [];
+      const existingActive = await client.query(existingActiveQuery, existingActiveParams);
+
+      if (existingActive.rowCount && existingActive.rowCount > 0) {
+        const activeId = existingActive.rows[0].id;
+        const nextVersion = existingActive.rows[0].version + 1;
+        const res = await client.query(
+          `UPDATE prescription_templates
+           SET name = COALESCE($1, name), description = COALESCE($2, description), html_content = $3,
+               layout_config = COALESCE($4, layout_config), status = $5, version = $6,
+               updated_by = $7, updated_at = NOW()
+           WHERE id = $8
+           RETURNING id, name, description, html_content, layout_config, status, version,
+                     hospital_id, branch_id, is_default, updated_at`,
+          [name, description, html_content, layout_config, status, nextVersion, user_id, activeId]
+        );
+
+        await client.query("COMMIT");
+        return res.rows[0];
+      }
+
+      // 3. Otherwise insert as new
+      const res = await client.query(
+        `INSERT INTO prescription_templates (
+          name, description, html_content, layout_config, status, version,
+          hospital_id, branch_id, is_default, created_by, updated_by, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, 1, $6, $7, false, $8, $8, NOW(), NOW())
+        RETURNING id, name, description, html_content, layout_config, status, version,
+                  hospital_id, branch_id, is_default, updated_at`,
+        [name, description, html_content, layout_config, status, hospital_id, branch_id, user_id]
+      );
+
+      await client.query("COMMIT");
+      return res.rows[0];
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Activates a template atomically for its assigned hospital
+   */
+  public static async activateTemplate(id: string, hospitalId?: string | null): Promise<any> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const tplRes = await client.query("SELECT * FROM prescription_templates WHERE id = $1", [id]);
+      if (!tplRes.rowCount || tplRes.rowCount === 0) {
+        throw new Error("Template not found");
+      }
+      const tpl = tplRes.rows[0];
+      const targetHospitalId = hospitalId ?? tpl.hospital_id;
+
+      if (targetHospitalId) {
+        await client.query(
+          `UPDATE prescription_templates
+           SET status = 'ARCHIVED', updated_at = NOW()
+           WHERE hospital_id = $1 AND status = 'ACTIVE' AND id != $2`,
+          [targetHospitalId, id]
+        );
+      } else {
+        await client.query(
+          `UPDATE prescription_templates
+           SET status = 'ARCHIVED', updated_at = NOW()
+           WHERE hospital_id IS NULL AND status = 'ACTIVE' AND id != $1`,
+          [id]
+        );
+      }
+
+      const updated = await client.query(
+        `UPDATE prescription_templates
+         SET status = 'ACTIVE', updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, name, description, html_content, layout_config, status, version,
+                   hospital_id, branch_id, is_default, updated_at`,
+        [id]
+      );
+
+      await client.query("COMMIT");
+      return updated.rows[0];
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Duplicates an existing template as a new DRAFT
+   */
+  public static async duplicateTemplate(
+    id: string,
+    hospitalId?: string | null,
+    userId?: string | null
+  ): Promise<any> {
+    let sourceTemplate: any = null;
+    if (id === "default-standard-a4") {
+      sourceTemplate = {
+        name: "Standard Prescription",
+        description: "A4 prescription layout used by doctors.",
+        html_content: DEFAULT_STATIC_HTML_TEMPLATE,
+        layout_config: null,
+      };
+    } else {
+      const res = await pool.query("SELECT * FROM prescription_templates WHERE id = $1", [id]);
+      if (!res.rowCount || res.rowCount === 0) {
+        throw new Error("Template not found");
+      }
+      sourceTemplate = res.rows[0];
+    }
+
+    const copyName = `${sourceTemplate.name} (Copy)`;
+    const newHospitalId = hospitalId ?? sourceTemplate.hospital_id ?? null;
+
+    const insertRes = await pool.query(
+      `INSERT INTO prescription_templates (
+        name, description, html_content, layout_config, status, version,
+        hospital_id, branch_id, is_default, created_by, updated_by, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, 'DRAFT', 1, $5, $6, false, $7, $7, NOW(), NOW())
+      RETURNING id, name, description, html_content, layout_config, status, version,
+                hospital_id, branch_id, is_default, created_at, updated_at`,
+      [
+        copyName,
+        sourceTemplate.description,
+        sourceTemplate.html_content,
+        sourceTemplate.layout_config,
+        newHospitalId,
+        sourceTemplate.branch_id ?? null,
+        userId ?? null,
+      ]
+    );
+
+    return insertRes.rows[0];
+  }
+
+  /**
+   * Deletes a template if not the active system default
+   */
+  public static async deleteTemplate(id: string, hospitalId?: string | null): Promise<boolean> {
+    if (id === "default-standard-a4") {
+      throw new Error("Cannot delete system default template");
+    }
+
+    const res = await pool.query("SELECT * FROM prescription_templates WHERE id = $1", [id]);
+    if (!res.rowCount || res.rowCount === 0) {
+      return false;
+    }
+
+    const tpl = res.rows[0];
+    if (tpl.is_default && !tpl.hospital_id) {
+      throw new Error("Cannot delete global default template");
+    }
+
+    if (hospitalId && tpl.hospital_id && tpl.hospital_id !== hospitalId) {
+      throw new Error("Access denied: Template belongs to another hospital.");
+    }
+
+    await pool.query("DELETE FROM prescription_templates WHERE id = $1", [id]);
+    return true;
   }
 
   /**
    * Generates a PDF buffer from resolved HTML string using Puppeteer
    */
   public static async generatePdfBuffer(html: string): Promise<Buffer> {
+    const inlinedHtml = await this.inlineImagesForPdf(html);
+
     const browser = await puppeteer.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
     });
 
     try {
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      await page.setContent(inlinedHtml, { waitUntil: "domcontentloaded", timeout: 30000 });
+      await page.evaluate(async () => {
+        const doc = (globalThis as any).document;
+        if (!doc || !doc.images) return;
+        const images: any[] = Array.from(doc.images);
+        await Promise.all(
+          images.map((img: any) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise((resolve) => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            });
+          })
+        );
+      });
+      await new Promise((resolve) => setTimeout(resolve, 80));
       const pdf = await page.pdf({
         format: "A4",
         printBackground: true,
@@ -1176,9 +1806,15 @@ export class PrescriptionTemplatesService {
       ? `<img src="${escapeHtml(doc.signature_url)}" alt="Signature" class="rx-sig-img" />`
       : `<div class="rx-sig-art">${escapeHtml(cleanDocName || "Narendran")}</div>`;
 
-    const logoHtml = hosp.logo_url
-      ? `<img src="${escapeHtml(hosp.logo_url)}" alt="Hospital Logo" class="rx-logo-img" />`
-      : "";
+    let logoHtml = "";
+    const rawHospLogo = hosp.logo_url ? String(hosp.logo_url).trim() : "";
+    if (rawHospLogo) {
+      logoHtml = `<img src="${escapeHtml(rawHospLogo)}" alt="Hospital Logo" class="rx-logo-img" style="max-width: 77mm; max-height: 32mm; width: auto; height: auto; object-fit: contain; object-position: left center; display: block;" onerror="this.removeAttribute('onerror'); this.src='${DEFAULT_ANNAAMALAI_LOGO_BASE64}';" />`;
+    } else if (!hosp.name || hosp.name.toLowerCase().includes("annaamalai")) {
+      logoHtml = `<img src="${DEFAULT_ANNAAMALAI_LOGO_BASE64}" alt="Annaamalai Cancer Center Logo" class="rx-logo-img" style="max-width: 77mm; max-height: 32mm; width: auto; height: auto; object-fit: contain; object-position: left center; display: block;" />`;
+    } else {
+      logoHtml = `<div class="rx-logo-placeholder"><div class="rx-logo-placeholder-name">${escapeHtml(hosp.name || "Hospital")}</div><div class="rx-logo-placeholder-sub">Hospital Letterhead</div></div>`;
+    }
 
     // Format Additional Notes as list items if multiline
     let additionalNotesHtml = rx.additional_notes || rx.general_instructions || "";
@@ -1306,6 +1942,7 @@ export class PrescriptionTemplatesService {
       hospital_email: hosp.email || "narenonco@gmail.com",
       hospital_website: hosp.website || "www.drnarendranoncologist.com",
       hospital_logo: logoHtml,
+      HOSPITAL_LOGO: logoHtml,
 
       branch_name: branch.name || "",
       branch_address: branch.address || "",

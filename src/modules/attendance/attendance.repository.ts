@@ -17,6 +17,7 @@ import type {
 } from './attendance.types.js';
 
 let tablesEnsured = false;
+export const DEFAULT_TENANT_ID = process.env['DEFAULT_TENANT_ID'] || '7718145a-20fb-4c27-89eb-8f1bebf1ab28';
 
 export async function ensureAttendanceTables(): Promise<void> {
   if (tablesEnsured) return;
@@ -27,7 +28,7 @@ export async function ensureAttendanceTables(): Promise<void> {
       -- 1. Shifts Table
       CREATE TABLE IF NOT EXISTS attendance_shifts (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id VARCHAR(100) NOT NULL DEFAULT 'default',
+        tenant_id UUID NOT NULL DEFAULT '${DEFAULT_TENANT_ID}'::uuid,
         hospital_id VARCHAR(100) NOT NULL DEFAULT 'default',
         branch_id VARCHAR(100) NULL,
         name VARCHAR(100) NOT NULL,
@@ -49,7 +50,7 @@ export async function ensureAttendanceTables(): Promise<void> {
       -- 2. User Shift Assignments
       CREATE TABLE IF NOT EXISTS user_shift_assignments (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id VARCHAR(100) NOT NULL DEFAULT 'default',
+        tenant_id UUID NOT NULL DEFAULT '${DEFAULT_TENANT_ID}'::uuid,
         user_id UUID NOT NULL,
         shift_id UUID NOT NULL REFERENCES attendance_shifts(id) ON DELETE RESTRICT,
         user_type VARCHAR(20) NOT NULL DEFAULT 'STAFF',
@@ -66,7 +67,7 @@ export async function ensureAttendanceTables(): Promise<void> {
       -- 3. Daily Attendance Records
       CREATE TABLE IF NOT EXISTS attendance_records (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id VARCHAR(100) NOT NULL DEFAULT 'default',
+        tenant_id UUID NOT NULL DEFAULT '${DEFAULT_TENANT_ID}'::uuid,
         hospital_id VARCHAR(100) NOT NULL DEFAULT 'default',
         branch_id VARCHAR(100) NULL,
         user_id UUID NOT NULL,
@@ -99,7 +100,7 @@ export async function ensureAttendanceTables(): Promise<void> {
       -- 4. Audit Trail for All In/Out Punches
       CREATE TABLE IF NOT EXISTS attendance_punches (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id VARCHAR(100) NOT NULL DEFAULT 'default',
+        tenant_id UUID NOT NULL DEFAULT '${DEFAULT_TENANT_ID}'::uuid,
         attendance_record_id UUID NOT NULL REFERENCES attendance_records(id) ON DELETE CASCADE,
         punch_type VARCHAR(20) NOT NULL,
         punched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -114,7 +115,7 @@ export async function ensureAttendanceTables(): Promise<void> {
       -- 5. Attendance Regularization Requests
       CREATE TABLE IF NOT EXISTS attendance_regularizations (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        tenant_id VARCHAR(100) NOT NULL DEFAULT 'default',
+        tenant_id UUID NOT NULL DEFAULT '${DEFAULT_TENANT_ID}'::uuid,
         user_id UUID NOT NULL,
         attendance_record_id UUID REFERENCES attendance_records(id) ON DELETE SET NULL,
         date DATE NOT NULL,
@@ -195,7 +196,7 @@ export async function ensureAttendanceTables(): Promise<void> {
 // Shift Repository Queries
 // ----------------------------------------------------
 
-export async function getAllShifts(tenantId = 'default'): Promise<AttendanceShift[]> {
+export async function getAllShifts(tenantId = DEFAULT_TENANT_ID): Promise<AttendanceShift[]> {
   await ensureAttendanceTables();
   const query = `
     SELECT * FROM attendance_shifts 
@@ -221,7 +222,7 @@ export async function createShift(data: Partial<AttendanceShift>): Promise<Atten
       start_time, end_time, grace_period_minutes, half_day_threshold_hours,
       full_day_threshold_hours, color_code, is_active
     ) VALUES (
-      COALESCE($1, 'default'), COALESCE($2, 'default'), $3, $4, $5,
+      COALESCE($1, '${DEFAULT_TENANT_ID}'), COALESCE($2, 'default'), $3, $4, $5,
       COALESCE($6, 'REGULAR'), COALESCE($7, 'ALL'), $8, $9,
       COALESCE($10, 15), COALESCE($11, 4.0), COALESCE($12, 8.0),
       COALESCE($13, '#2563eb'), COALESCE($14, true)
@@ -597,7 +598,7 @@ export async function assignUserShift(data: {
       tenant_id, user_id, shift_id, user_type, day_of_week, specific_date,
       effective_from, effective_to, assigned_by
     ) VALUES (
-      COALESCE($1, 'default'), $2, $3, $4, $5, $6, $7, $8, $9
+      COALESCE($1, '${DEFAULT_TENANT_ID}'), $2, $3, $4, $5, $6, $7, $8, $9
     ) RETURNING *
   `;
   const values = [
@@ -622,7 +623,7 @@ export async function assignUserShift(data: {
 export async function findAttendanceRecord(
   userId: string,
   dateStr: string,
-  tenantId = 'default'
+  tenantId = DEFAULT_TENANT_ID
 ): Promise<AttendanceRecord | null> {
   await ensureAttendanceTables();
   const query = `
@@ -653,7 +654,7 @@ export async function insertPunch(
   ip?: string | null,
   device?: string | null,
   verificationStatus: 'VERIFIED' | 'OUTSIDE_GEOFENCE' | 'FLAGGED' = 'VERIFIED',
-  tenantId = 'default',
+  tenantId = DEFAULT_TENANT_ID,
   punchedAt?: string | Date | null
 ): Promise<AttendancePunch> {
   await ensureAttendanceTables();
@@ -697,7 +698,7 @@ export async function upsertAttendanceRecord(
       check_in_location, check_out_location, is_manual_entry, manual_reason,
       approved_by, remarks
     ) VALUES (
-      COALESCE($1, 'default'), COALESCE($2, 'default'), $3, $4::uuid, COALESCE($5, 'STAFF'),
+      COALESCE($1, '${DEFAULT_TENANT_ID}'), COALESCE($2, 'default'), $3, $4::uuid, COALESCE($5, 'STAFF'),
       $6::date, $7::uuid, $8::timestamptz, $9::timestamptz, COALESCE($10, 0), COALESCE($11, 0), COALESCE($12, 0),
       COALESCE($13, 'PRESENT'), COALESCE($14, 'WEB_PORTAL'), $15, $16,
       $17::jsonb, $18::jsonb, COALESCE($19, false), $20, $21::uuid, $22
@@ -727,7 +728,7 @@ export async function upsertAttendanceRecord(
   `;
 
   const values = [
-    data.tenant_id || 'default',
+    data.tenant_id || DEFAULT_TENANT_ID,
     data.hospital_id || 'default',
     data.branch_id || null,
     data.userId,
@@ -759,7 +760,7 @@ export async function getUserAttendanceHistory(
   userId: string,
   startDate: string,
   endDate: string,
-  tenantId = 'default'
+  tenantId = DEFAULT_TENANT_ID
 ): Promise<AttendanceRecord[]> {
   await ensureAttendanceTables();
   const query = `
@@ -779,7 +780,7 @@ export async function getUserAttendanceHistory(
 
 export async function getAdminDashboardStats(
   dateStr: string,
-  tenantId = 'default'
+  tenantId = DEFAULT_TENANT_ID
 ): Promise<AttendanceDashboardSummary> {
   await ensureAttendanceTables();
 
@@ -952,7 +953,7 @@ export async function getAdminDashboardStats(
 
 export async function getAdminAttendanceRecords(
   filters: AttendanceFilterParams,
-  tenantId = 'default'
+  tenantId = DEFAULT_TENANT_ID
 ): Promise<{ records: AttendanceRecord[]; total: number }> {
   await ensureAttendanceTables();
 
@@ -1155,7 +1156,7 @@ export async function getAdminAttendanceRecords(
   return { records, total };
 }
 
-export async function deleteAttendanceRecord(recordId: string, tenantId = 'default'): Promise<boolean> {
+export async function deleteAttendanceRecord(recordId: string, tenantId = DEFAULT_TENANT_ID): Promise<boolean> {
   await ensureAttendanceTables();
   await pool.query('DELETE FROM attendance_punches WHERE attendance_record_id = $1::uuid', [recordId]);
   const res = await pool.query('DELETE FROM attendance_records WHERE id = $1::uuid AND tenant_id = $2', [recordId, tenantId]);
@@ -1182,7 +1183,7 @@ export async function createRegularizationRequest(data: {
       tenant_id, user_id, attendance_record_id, date, request_type,
       requested_check_in, requested_check_out, reason, status
     ) VALUES (
-      COALESCE($1, 'default'), $2, $3, $4, $5, $6, $7, $8, 'PENDING'
+      COALESCE($1, '${DEFAULT_TENANT_ID}'), $2, $3, $4, $5, $6, $7, $8, 'PENDING'
     ) RETURNING *
   `;
   const values = [
@@ -1201,7 +1202,7 @@ export async function createRegularizationRequest(data: {
 
 export async function getUserRegularizations(
   userId: string,
-  tenantId = 'default'
+  tenantId = DEFAULT_TENANT_ID
 ): Promise<AttendanceRegularization[]> {
   await ensureAttendanceTables();
   const query = `
@@ -1217,7 +1218,7 @@ export async function getUserRegularizations(
 
 export async function getAllRegularizations(
   statusFilter?: RegularizationStatus | 'ALL',
-  tenantId = 'default'
+  tenantId = DEFAULT_TENANT_ID
 ): Promise<AttendanceRegularization[]> {
   await ensureAttendanceTables();
   const whereClauses: string[] = ['reg.tenant_id = $1'];

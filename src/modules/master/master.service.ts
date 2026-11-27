@@ -3,6 +3,7 @@
 import {pool} from '@/db/pool.js';
 import {getTenantPool} from '@/db/tenant-pool.js';
 import {env} from '@/config/env.js';
+import {ConflictError} from '@/http/errors.js';
 import pg from 'pg';
 import * as pgMigrate from 'node-pg-migrate';
 import crypto from 'crypto';
@@ -90,12 +91,15 @@ export class MasterService {
     databaseName: string,
     status: 'ACTIVE' | 'INACTIVE',
   ) {
+    const cleanDbName = databaseName.trim().toLowerCase();
+    const cleanTenantName = tenantName.trim();
+
     // 1. Generate unique tenant code
     const randomHex = crypto.randomBytes(3).toString('hex').toUpperCase(); // e.g., 'A1B2C3'
     const tenantCode = `T-${randomHex}`;
 
     console.log(
-      `Starting tenant provisioning for: ${tenantName} (${tenantCode}, ${databaseName})`,
+      `Starting tenant provisioning for: ${cleanTenantName} (${tenantCode}, ${cleanDbName})`,
     );
 
     const client = await pool.connect();
@@ -103,34 +107,71 @@ export class MasterService {
 
     try {
       await ensureMasterTables(client);
+
+      // 1. Check if database name already exists in tenants table
+      const existingTenant = await client.query(
+        'SELECT id, tenant_name, database_name FROM tenants WHERE LOWER(database_name) = LOWER($1)',
+        [cleanDbName],
+      );
+      if (existingTenant.rows.length > 0) {
+        throw new ConflictError(
+          `A tenant with database name "${cleanDbName}" already exists ("${existingTenant.rows[0].tenant_name}"). Please choose a unique database name.`,
+        );
+      }
+
+      // 2. Check if database already exists in PostgreSQL
+      const existingDb = await client.query(
+        'SELECT 1 FROM pg_database WHERE datname = $1',
+        [cleanDbName],
+      );
+      if (existingDb.rows.length > 0) {
+        throw new ConflictError(
+          `PostgreSQL database "${cleanDbName}" already exists on the server. Please choose a different database name.`,
+        );
+      }
+
       await client.query('BEGIN');
 
       // 2. Insert into tenants table
       const result = await client.query(
         `INSERT INTO tenants (tenant_code, tenant_name, database_name, status)
          VALUES ($1, $2, $3, $4) RETURNING id`,
-        [tenantCode, tenantName, databaseName, status],
+        [tenantCode, cleanTenantName, cleanDbName, status],
       );
       tenantId = result.rows[0].id;
 
       // 3. Create actual database (Postgres doesn't allow CREATE DATABASE inside a transaction block)
       await client.query('COMMIT');
 
-      console.log(`Creating PostgreSQL database: ${databaseName}`);
-      await client.query(`CREATE DATABASE "${databaseName}"`);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error(`Failed to provision tenant DB for ${tenantName}:`, error);
+      console.log(`Creating PostgreSQL database: ${cleanDbName}`);
+      await client.query(`CREATE DATABASE "${cleanDbName}"`);
+    } catch (error: any) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_rb) {}
+
+      if (error.code === '23505') {
+        if (error.constraint === 'tenants_database_name_key' || error.detail?.includes('database_name')) {
+          throw new ConflictError(
+            `Database name "${cleanDbName}" already exists. Please choose a different database name.`,
+          );
+        }
+        if (error.constraint === 'tenants_tenant_code_key') {
+          throw new ConflictError(`Tenant code collision generated. Please try submitting again.`);
+        }
+      }
+
+      console.error(`Failed to provision tenant DB for ${cleanTenantName}:`, error);
       throw error;
     } finally {
       client.release();
     }
 
     // 4. Run tenant migrations programmatically
-    console.log(`Running tenant schema migrations for ${databaseName}`);
+    console.log(`Running tenant schema migrations for ${cleanDbName}`);
 
     const masterUrl = new URL(env.DATABASE_URL_ACTIVE);
-    masterUrl.pathname = `/${databaseName}`;
+    masterUrl.pathname = `/${cleanDbName}`;
     const tenantConnectionString = masterUrl.toString();
 
     const tenantClient = new pg.Client({
@@ -158,14 +199,37 @@ export class MasterService {
       });
 
       console.log(
-        `Tenant migrations completed successfully for ${databaseName}`,
+        `Tenant migrations completed successfully for ${cleanDbName}`,
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error(
-        `Failed to run tenant migrations or seed for ${databaseName}:`,
+        `Failed to run tenant migrations or seed for ${cleanDbName}:`,
         error,
       );
-      throw error;
+
+      // Clean up orphaned tenant row and database if migrations failed
+      if (tenantId) {
+        try {
+          const cleanupClient = await pool.connect();
+          try {
+            await cleanupClient.query('DELETE FROM tenants WHERE id = $1', [tenantId]);
+            await cleanupClient.query(
+              `SELECT pg_terminate_backend(pg_stat_activity.pid)
+               FROM pg_stat_activity
+               WHERE pg_stat_activity.datname = $1 AND pid <> pg_backend_pid()`,
+              [cleanDbName],
+            );
+            await cleanupClient.query(`DROP DATABASE IF EXISTS "${cleanDbName}"`);
+            console.log(`Cleaned up failed tenant database ${cleanDbName}`);
+          } finally {
+            cleanupClient.release();
+          }
+        } catch (cleanupErr) {
+          console.warn(`Failed to clean up failed tenant ${cleanDbName}:`, cleanupErr);
+        }
+      }
+
+      throw new Error(`Tenant database schema setup failed: ${error.message || error}`);
     } finally {
       await tenantClient.end();
     }
@@ -173,7 +237,7 @@ export class MasterService {
     return {
       tenantId,
       tenantCode,
-      databaseName,
+      databaseName: cleanDbName,
     };
   }
 

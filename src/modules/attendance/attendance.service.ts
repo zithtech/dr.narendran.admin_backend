@@ -27,7 +27,7 @@ function getTodayDateStr(): string {
 export async function getTodayStatus(
   userId: string,
   userType: UserType = 'STAFF',
-  tenantId = 'default'
+  tenantId = repository.DEFAULT_TENANT_ID
 ): Promise<{
   isCheckedIn: boolean;
   isOnBreak: boolean;
@@ -120,7 +120,7 @@ export async function punch(data: {
   record: AttendanceRecord;
   message: string;
 }> {
-  const { userId, userType, punchType, location, ip, device, hospitalId, tenantId = 'default' } = data;
+  const { userId, userType, punchType, location, ip, device, hospitalId, tenantId = repository.DEFAULT_TENANT_ID } = data;
   const todayStr = getTodayDateStr();
 
   // Resolve user profile to ensure accurate role categorization (ADMIN, DOCTOR, STAFF)
@@ -321,7 +321,7 @@ export async function getMyHistory(
   userId: string,
   startDate?: string,
   endDate?: string,
-  tenantId = 'default'
+  tenantId = repository.DEFAULT_TENANT_ID
 ): Promise<{
   history: AttendanceRecord[];
   kpis: {
@@ -377,7 +377,7 @@ export async function getMyHistory(
 
 export async function getAdminDashboardSummary(
   date?: string,
-  tenantId = 'default'
+  tenantId = repository.DEFAULT_TENANT_ID
 ): Promise<AttendanceDashboardSummary> {
   const targetDate = date || getTodayDateStr();
   return repository.getAdminDashboardStats(targetDate, tenantId);
@@ -385,7 +385,7 @@ export async function getAdminDashboardSummary(
 
 export async function getAdminRecords(
   filters: AttendanceFilterParams,
-  tenantId = 'default'
+  tenantId = repository.DEFAULT_TENANT_ID
 ): Promise<{ records: AttendanceRecord[]; total: number }> {
   return repository.getAdminAttendanceRecords(filters, tenantId);
 }
@@ -431,7 +431,7 @@ export async function createManualEntry(
     workingMinutes = Math.max(0, Math.floor((outMs - inMs) / 60000));
   }
 
-  const existing = await repository.findAttendanceRecord(data.userId, data.date, data.tenantId || 'default');
+  const existing = await repository.findAttendanceRecord(data.userId, data.date, data.tenantId || repository.DEFAULT_TENANT_ID);
   let finalStatus = data.status;
   if (existing && existing.status === 'PRESENT') {
     finalStatus = 'PRESENT';
@@ -444,7 +444,7 @@ export async function createManualEntry(
       : (userProfile?.userType || data.userType || 'STAFF');
 
   const record = await repository.upsertAttendanceRecord({
-    tenant_id: data.tenantId || 'default',
+    tenant_id: data.tenantId || repository.DEFAULT_TENANT_ID,
     hospital_id: data.hospitalId || 'default',
     userId: data.userId,
     user_type: effectiveUserType,
@@ -492,12 +492,12 @@ export async function createManualEntry(
   return record;
 }
 
-export async function deleteAttendanceRecord(recordId: string, tenantId = 'default'): Promise<boolean> {
+export async function deleteAttendanceRecord(recordId: string, tenantId = repository.DEFAULT_TENANT_ID): Promise<boolean> {
   return repository.deleteAttendanceRecord(recordId, tenantId);
 }
 
 // Shifts
-export async function getAllShifts(tenantId = 'default'): Promise<AttendanceShift[]> {
+export async function getAllShifts(tenantId = repository.DEFAULT_TENANT_ID): Promise<AttendanceShift[]> {
   return repository.getAllShifts(tenantId);
 }
 
@@ -547,14 +547,14 @@ export async function submitRegularization(data: {
 
 export async function getMyRegularizations(
   userId: string,
-  tenantId = 'default'
+  tenantId = repository.DEFAULT_TENANT_ID
 ): Promise<AttendanceRegularization[]> {
   return repository.getUserRegularizations(userId, tenantId);
 }
 
 export async function getAllRegularizations(
   status?: RegularizationStatus | 'ALL' | undefined,
-  tenantId = 'default'
+  tenantId = repository.DEFAULT_TENANT_ID
 ): Promise<AttendanceRegularization[]> {
   return repository.getAllRegularizations(status, tenantId);
 }

@@ -210,6 +210,12 @@ export const AVAILABLE_MODULES: ModuleDefinition[] = [
     category: 'Support & Reviews',
     description: 'System-wide support ticketing and inquiry help desk',
   },
+  {
+    slug: 'CHAT',
+    name: 'Chat',
+    category: 'Support & Reviews',
+    description: 'Direct messaging and real-time communication with doctors, patients, and staff',
+  },
 ];
 
 export type RbacAction = 'read' | 'create' | 'update' | 'delete' | 'manage' | 'write';
@@ -304,6 +310,7 @@ const DOCTOR_DEFAULT_PERMISSIONS: PermissionInput[] = [
   { module_slug: 'DOCTOR_SUPPORT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
   { module_slug: 'CHAT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
   { module_slug: 'SUPPORT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
+  { module_slug: 'CHAT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
 ];
 
 async function upsertRolePermissions(

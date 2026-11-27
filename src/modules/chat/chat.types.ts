@@ -124,6 +124,7 @@ export interface ChatMessage {
   attachmentSize?: number | null | undefined;
   storage_key?: string | null | undefined;
   storageKey?: string | null | undefined;
+  duration?: number | null | undefined;
   reply_to_message_id?: string | null | undefined;
   replyToMessageId?: string | null | undefined;
   reply_to?: QuotedMessagePreview | null | undefined;

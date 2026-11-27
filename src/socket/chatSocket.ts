@@ -236,8 +236,29 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
             userRole,
           );
 
-        // Canonical sender_id strictly from socket.data.userId (authenticated user_accounts.id)
-        const senderId = socket.data.userId || userId;
+        const recipientUserId = await chatService.getRecipientUserId(conversation, senderType);
+
+        // Canonical sender_id strictly from authenticated socket session
+        let senderId = socket.data.userId || userId;
+        const clientSenderId = (data as any)?.senderId || (data as any)?.sender_id;
+        if (clientSenderId && String(clientSenderId) !== String(recipientUserId)) {
+          // Validate against authenticated user or identity
+          if (
+            clientSenderId === userId ||
+            clientSenderId === user?.id ||
+            clientSenderId === user?.userAccountId ||
+            clientSenderId === user?.doctorId ||
+            clientSenderId === user?.patientId
+          ) {
+            senderId = clientSenderId;
+          }
+        }
+
+        // Safety: verify senderId is never overwritten by recipient ID
+        if (String(senderId) === String(recipientUserId)) {
+          senderId = senderType === 'PATIENT' ? conversation.patient_id : conversation.doctor_id;
+        }
+
         const senderRole = socket.data.role || userRole || (senderType === 'PATIENT' ? 'patient' : 'doctor');
 
         // Save message to PostgreSQL (within transaction in repository)
@@ -252,11 +273,9 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
         );
 
         logger.info(
-          { conversationId, messageId: savedMessage.id, senderType },
+          { conversationId, messageId: savedMessage.id, senderType, senderId },
           '[Chat] Message saved',
         );
-
-        const recipientUserId = await chatService.getRecipientUserId(conversation, senderType);
 
         logger.info(
           { conversationId, recipientUserId },
@@ -284,6 +303,8 @@ export function registerChatSocketHandlers(io: Server, socket: Socket): void {
           patientId: conversation.patient_id,
           sender_id: senderId,
           senderId: senderId,
+          sender_name: user?.name || user?.username || null,
+          senderName: user?.name || user?.username || null,
           sender_role: senderRole,
           senderRole: senderRole,
           sender_type: savedMessage.sender_type,

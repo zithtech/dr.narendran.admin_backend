@@ -15,64 +15,71 @@ const upload = multer({
 
 const chatFallbackSlugs = ['SUPPORT', 'PATIENT_SUPPORT', 'DOCTOR_SUPPORT'];
 
+const canReadChat = requirePermissionOrPatient('CHAT', 'read', ['SUPPORT', 'PATIENT_SUPPORT', 'DOCTOR_SUPPORT']);
+const canCreateChat = requirePermissionOrPatient('CHAT', 'create', ['CHAT', 'SUPPORT', 'PATIENT_SUPPORT', 'DOCTOR_SUPPORT']);
+const canDeleteChat = requirePermissionOrPatient('CHAT', 'delete', ['CHAT']);
+
 chatRouter.get(
   '/doctors',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
-  chatController.getDoctors,
+  canReadChat, chatController.getDoctors,
 );
 chatRouter.get(
   '/patients',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
-  chatController.getPatients,
+  canReadChat, chatController.getPatients,
 );
 chatRouter.get(
   '/others',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
-  chatController.getOtherUsers,
+  canReadChat, chatController.getOtherUsers,
 );
 chatRouter.get(
   '/admins',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
-  chatController.getOtherUsers,
+  canReadChat, chatController.getOtherUsers,
 );
 chatRouter.get(
   '/recipients',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
-  chatController.getRecipients,
+  canReadChat, chatController.getRecipients,
 );
 chatRouter.get(
   '/conversations',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
-  chatController.getConversations,
+  canReadChat, chatController.getConversations,
 );
 chatRouter.post(
   '/conversations',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'create', chatFallbackSlugs),
-  chatController.getOrCreateConversation,
+  canCreateChat, chatController.getOrCreateConversation,
 );
 chatRouter.get(
   '/conversations/:conversationId/messages',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
+  canReadChat,
   chatController.getMessages,
 );
 chatRouter.get(
   '/conversations/:conversationId/search',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
+  canReadChat,
   chatController.searchMessages,
 );
 chatRouter.post(
   '/conversations/:conversationId/attachments',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'create', chatFallbackSlugs),
+  canCreateChat,
   upload.single('file'),
   chatController.uploadAttachment,
 );
@@ -80,17 +87,19 @@ chatRouter.get(
   '/conversations/:conversationId/messages/:messageId/attachment',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'read', chatFallbackSlugs),
+  canReadChat,
   chatController.getAttachment,
 );
 chatRouter.post(
   '/conversations/:conversationId/read',
   requireAuth,
-  requirePermissionOrPatient('CHAT', 'update', chatFallbackSlugs),
+  canReadChat,
   chatController.markAsRead,
 );
 chatRouter.delete(
   '/conversations/:conversationId/messages/:messageId',
   requireAuth,
   requirePermissionOrPatient('CHAT', 'delete', chatFallbackSlugs),
+  canDeleteChat,
   chatController.deleteMessage,
 );

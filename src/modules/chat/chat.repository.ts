@@ -93,11 +93,13 @@ export async function findConversationById(
        LEFT JOIN users usr ON (c.patient_id = usr.id OR (p.user_id IS NOT NULL AND p.user_id = usr.id))
        LEFT JOIN admin_users au_p ON (c.patient_id = au_p.id)
        LEFT JOIN master_admin_users mau_p ON (c.patient_id = mau_p.id)
+       LEFT JOIN tenant_admin_master_login tau_p ON (c.patient_id = tau_p.id)
        LEFT JOIN doctors d ON (c.doctor_id = d.id OR c.doctor_id = d.user_account_id)
        LEFT JOIN doctor_profiles dp ON (d.user_account_id IS NOT NULL AND dp.user_id = d.user_account_id) OR (c.doctor_id = dp.user_id)
        LEFT JOIN user_accounts u_d ON (d.user_account_id = u_d.id OR c.doctor_id = u_d.id)
        LEFT JOIN admin_users au_d ON (c.doctor_id = au_d.id)
        LEFT JOIN master_admin_users mau_d ON (c.doctor_id = mau_d.id)
+       LEFT JOIN tenant_admin_master_login tau_d ON (c.doctor_id = tau_d.id)
        WHERE c.id = $1`,
       [id],
     );
@@ -960,11 +962,13 @@ export async function getAllConversationsForUser(
        LEFT JOIN users usr_p ON (c.patient_id = usr_p.id OR (p.user_id IS NOT NULL AND p.user_id = usr_p.id))
        LEFT JOIN admin_users au_p ON (c.patient_id = au_p.id)
        LEFT JOIN master_admin_users mau_p ON (c.patient_id = mau_p.id)
+       LEFT JOIN tenant_admin_master_login tau_p ON (c.patient_id = tau_p.id)
        LEFT JOIN doctors d ON (c.doctor_id = d.id OR c.doctor_id = d.user_account_id)
        LEFT JOIN doctor_profiles dp ON (d.user_account_id IS NOT NULL AND dp.user_id = d.user_account_id) OR (c.doctor_id = dp.user_id)
        LEFT JOIN user_accounts u_d ON (d.user_account_id = u_d.id OR c.doctor_id = u_d.id)
        LEFT JOIN admin_users au_d ON (c.doctor_id = au_d.id)
        LEFT JOIN master_admin_users mau_d ON (c.doctor_id = mau_d.id)
+       LEFT JOIN tenant_admin_master_login tau_d ON (c.doctor_id = tau_d.id)
        WHERE c.patient_id = ANY($1::uuid[])
           OR c.doctor_id = ANY($1::uuid[])
           OR c.patient_id IN (
@@ -1083,50 +1087,103 @@ export async function getChatOtherUsers(
 ): Promise<any[]> {
   const client = await pool.connect();
   try {
-    let query = `
-      WITH combined_others AS (
+    const rawSources: any[] = [];
+
+    // 1. user_accounts (standard admin & staff accounts)
+    try {
+      const { rows } = await client.query(`
+        SELECT id, username as name, role, username as email, NULL::varchar as phone, status, 'user_accounts' as source
+        FROM user_accounts
+        WHERE lower(role) NOT IN ('patient', 'doctor')
+      `);
+      rawSources.push(...rows);
+    } catch {}
+
+    // 2. tenant_admin_master_login (tenant master admin credentials)
+    try {
+      const { rows } = await client.query(`
+        SELECT id, username as name, role, username as email, phone, status, 'tenant_admin_master_login' as source
+        FROM tenant_admin_master_login
+        WHERE (status IS NULL OR status = 'ACTIVE')
+      `);
+      rawSources.push(...rows);
+    } catch {}
+
+    // 3. admin_users (if table exists)
+    try {
+      const { rows } = await client.query(`
         SELECT id, username as name, role, username as email, NULL::varchar as phone, status, 'admin_users' as source
         FROM admin_users
         WHERE (status IS NULL OR status = 'ACTIVE')
+      `);
+      rawSources.push(...rows);
+    } catch {}
 
-        UNION ALL
-
+    // 4. master_admin_users (if table exists)
+    try {
+      const { rows } = await client.query(`
         SELECT id, name, role, email, NULL::varchar as phone, status, 'master_admin_users' as source
         FROM master_admin_users
         WHERE (status IS NULL OR status = 'ACTIVE')
+      `);
+      rawSources.push(...rows);
+    } catch {}
 
-        UNION ALL
-
+    // 5. hospital_staff (staff members)
+    try {
+      const { rows } = await client.query(`
         SELECT id, name, role, email, phone, status, 'hospital_staff' as source
         FROM hospital_staff
         WHERE (status IS NULL OR status = 'ACTIVE')
+      `);
+      rawSources.push(...rows);
+    } catch {}
 
-        UNION ALL
+    // 6. users table (admin accounts from general users table)
+    try {
+      const { rows } = await client.query(`
+        SELECT id, full_name as name, role::text as role, email, NULL::varchar as phone, 'ACTIVE' as status, 'users' as source
+        FROM users
+        WHERE lower(role::text) NOT IN ('patient', 'doctor')
+          AND (deleted_at IS NULL)
+      `);
+      rawSources.push(...rows);
+    } catch {}
 
-        SELECT id, username as name, role, username as email, NULL::varchar as phone, 'ACTIVE' as status, 'user_accounts' as source
-        FROM user_accounts
-        WHERE lower(role) NOT IN ('patient', 'doctor')
-      )
-      SELECT DISTINCT ON (COALESCE(email, id::text))
-        id, name, role, email, phone, status
-      FROM combined_others
-      WHERE 1=1
-    `;
-    const params: any[] = [];
+    const searchLower = search ? search.trim().toLowerCase() : '';
+    const seen = new Set<string>();
+    const results: any[] = [];
 
-    if (excludeUserIds.length > 0) {
-      params.push(excludeUserIds);
-      query += ` AND id != ALL($${params.length}::uuid[])`;
+    for (const item of rawSources) {
+      if (!item || !item.id) continue;
+      if (excludeUserIds.length > 0 && excludeUserIds.includes(String(item.id))) continue;
+
+      const dedupeKey = String(item.email || item.name || item.id).trim().toLowerCase();
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+
+      if (searchLower) {
+        const nameMatch = item.name && String(item.name).toLowerCase().includes(searchLower);
+        const emailMatch = item.email && String(item.email).toLowerCase().includes(searchLower);
+        const roleMatch = item.role && String(item.role).toLowerCase().includes(searchLower);
+        const phoneMatch = item.phone && String(item.phone).toLowerCase().includes(searchLower);
+        if (!nameMatch && !emailMatch && !roleMatch && !phoneMatch) {
+          continue;
+        }
+      }
+
+      results.push({
+        id: item.id,
+        name: item.name || 'User',
+        role: item.role || 'ADMIN',
+        email: item.email || null,
+        phone: item.phone || null,
+        status: item.status || 'ACTIVE',
+      });
     }
 
-    if (search && search.trim().length > 0) {
-      params.push(`%${search.trim()}%`);
-      query += ` AND (name ILIKE $${params.length} OR email ILIKE $${params.length} OR role ILIKE $${params.length} OR phone ILIKE $${params.length})`;
-    }
-
-    query += ` ORDER BY COALESCE(email, id::text), name ASC`;
-    const { rows } = await client.query(query, params);
-    return rows;
+    results.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return results;
   } finally {
     client.release();
   }

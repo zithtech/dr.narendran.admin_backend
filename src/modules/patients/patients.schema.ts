@@ -132,6 +132,10 @@ export const patientSchema = z.object({
     .optional()
     .nullable(),
   is_active: z.boolean().optional().nullable(),
+  referred_by: z.union([z.string().trim().max(50), z.literal(''), z.null()]).optional().nullable(),
+  referral_id: z.union([z.string().trim().max(100), z.literal(''), z.null()]).optional().nullable(),
+  referral_doctor_id: z.union([z.string().trim().max(100), z.literal(''), z.null()]).optional().nullable(),
+  alliance_doctor_id: z.union([z.string().trim().max(100), z.literal(''), z.null()]).optional().nullable(),
 });
 
 export type PatientInput = z.infer<typeof patientSchema>;

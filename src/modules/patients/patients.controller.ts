@@ -1,7 +1,7 @@
 import type {Request, Response} from 'express';
 import {z} from 'zod';
 
-import {patientSchema} from './patients.schema.js';
+import {patientSchema, patientSettingsUpdateSchema} from './patients.schema.js';
 import {patientsService} from './patients.service.js';
 
 export const PatientsController = {
@@ -26,6 +26,32 @@ export const PatientsController = {
       return res.json(patient);
     } catch (err: any) {
       return res.status(500).json({ error: 'Failed to fetch patient' });
+    }
+  },
+
+  async getSettings(req: Request, res: Response) {
+    try {
+      const hospitalIdParam = req.query['hospital_id'];
+      const hospitalId = typeof hospitalIdParam === 'string' && hospitalIdParam.trim() ? hospitalIdParam.trim() : undefined;
+      const settings = await patientsService.getPatientSettings(hospitalId);
+      res.json(settings);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Failed to fetch patient settings' });
+    }
+  },
+
+  async updateSettings(req: Request, res: Response) {
+    try {
+      const parsed = patientSettingsUpdateSchema.parse(req.body);
+      const settings = await patientsService.updatePatientSettings(parsed.hospital_id, parsed.prefix);
+      res.json(settings);
+    } catch (err: unknown) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ error: (err as any).issues[0]?.message || 'Invalid input data' });
+        return;
+      }
+      const message = (err as any)?.message || 'Failed to update patient settings';
+      res.status(400).json({ error: message });
     }
   },
 
@@ -72,10 +98,11 @@ export const PatientsController = {
       if ((err as any).code === '23505') {
         res
           .status(400)
-          .json({error: 'User account is already linked to another patient'});
+          .json({error: 'User account or patient code already exists'});
         return;
       }
-      res.status(500).json({error: 'Failed to create patient'});
+      const message = (err as any)?.message || 'Failed to create patient';
+      res.status(500).json({error: message});
     }
   },
 

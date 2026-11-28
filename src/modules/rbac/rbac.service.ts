@@ -437,6 +437,26 @@ export const rbacService = {
           .map((p) => normalizePermissionRow(p));
 
         if (rolePerms.length > 0) {
+          const roleUpper = (role.name || '').toUpperCase();
+          if (isSysAdmin || roleUpper === 'ADMIN') {
+            const existingSlugs = new Set(rolePerms.map((p) => p.module_slug.toUpperCase()));
+            const missingPerms = AVAILABLE_MODULES.filter((m) => !existingSlugs.has(m.slug)).map((m) =>
+              normalizePermissionRow({
+                role_name: role.name,
+                module_slug: m.slug,
+                can_read: true,
+                can_create: true,
+                can_update: true,
+                can_write: true,
+                can_delete: true,
+                can_manage: true,
+              }),
+            );
+            return {
+              ...role,
+              permissions: [...rolePerms, ...missingPerms],
+            };
+          }
           return {
             ...role,
             permissions: rolePerms,
@@ -585,6 +605,27 @@ export const rbacService = {
 
       // Return explicitly configured/saved permissions verbatim
       if (rawPermissions.length > 0) {
+        if (roles[0].is_system_role || isSysAdmin) {
+          const existingSlugs = new Set(rawPermissions.map((p) => p.module_slug.toUpperCase()));
+          const missingPerms = AVAILABLE_MODULES.filter((m) => !existingSlugs.has(m.slug)).map((m) =>
+            normalizePermissionRow({
+              module_slug: m.slug,
+              can_read: true,
+              can_create: true,
+              can_update: true,
+              can_write: true,
+              can_delete: true,
+              can_manage: true,
+            }),
+          );
+          return {
+            ...roles[0],
+            permissions: [
+              ...rawPermissions.map((p) => normalizePermissionRow(p)),
+              ...missingPerms,
+            ],
+          };
+        }
         return {
           ...roles[0],
           permissions: rawPermissions.map((p) => normalizePermissionRow(p)),
@@ -656,6 +697,7 @@ export const rbacService = {
       'DOCTOR_SUPPORT',
       'SUPPORT',
       'REVIEWS',
+      'CHAT',
     ];
 
     if (direct) {

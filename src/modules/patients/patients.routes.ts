@@ -33,11 +33,24 @@ patientsRouter.get('/me/medical-timeline', requireAuth, MedicalTimelineControlle
 patientsRouter.get('/me/medical-summary', requireAuth, MedicalTimelineController.getMedicalSummary);
 patientsRouter.post('/me/medical-summary', requireAuth, MedicalTimelineController.getMedicalSummary);
 
+// Patient Code Settings Endpoints (Must be defined before /:id)
+patientsRouter.get(
+  '/settings',
+  requirePermission('PATIENTS', 'read', ['SETTINGS']),
+  PatientsController.getSettings,
+);
+patientsRouter.put(
+  '/settings',
+  requirePermission('PATIENTS', 'update', ['SETTINGS']),
+  PatientsController.updateSettings,
+);
+
 patientsRouter.get(
   '/',
   requirePermission('PATIENTS', 'read', ['APPOINTMENTS', 'TODAYS_SCHEDULE', 'PRESCRIPTIONS']),
   PatientsController.getAll,
 );
+
 // Patient Medical History Endpoints
 patientsRouter.get(
   '/:patientId/medical-histories',
@@ -96,4 +109,3 @@ patientsRouter.get(
 patientsRouter.post('/', requirePermission('PATIENTS', 'create'), PatientsController.create);
 patientsRouter.put('/:id', requirePermission('PATIENTS', 'update'), PatientsController.update);
 patientsRouter.delete('/:id', requirePermission('PATIENTS', 'delete'), PatientsController.delete);
-

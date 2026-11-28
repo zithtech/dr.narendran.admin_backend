@@ -1010,7 +1010,7 @@ export class PrescriptionsService {
       // 4. Query Doctor, Hospital, Branch metadata
       const docRes = await client.query(
         `SELECT d.id, d.name, d.qualification, d.specialization, d.medical_registration_number,
-                d.phone, d.email, d.clinic_address,
+                d.phone, d.email, d.clinic_address, d.hospital_id, d.branch_id,
                 h.name as hospital_name, h.address as hospital_address, h.phone as hospital_phone, h.email as hospital_email,
                 b.name as branch_name, b.address as branch_address, b.phone as branch_phone
          FROM doctors d
@@ -1031,7 +1031,13 @@ export class PrescriptionsService {
 
       if (!isUpload && !finalPrescriptionUrl) {
         try {
-          const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate();
+          const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate(docMeta.hospital_id, docMeta.branch_id);
+
+          const headerSection = (activeTemplate.layout_config?.sections || []).find(
+            (s: any) => s.id === 'sec_header' || s.type === 'HEADER_LETTERHEAD'
+          );
+          const templateCustomLogo = headerSection?.props?.customLogoUrl || null;
+          const resolvedHospitalLogo = templateCustomLogo || docMeta.hospital_logo || null;
 
           let labDetailsMap: Record<string, any> = {};
           const labIds = (input.labTests || []).map((l) => l.labId || l.lab_id).filter(Boolean);
@@ -1053,6 +1059,7 @@ export class PrescriptionsService {
               address: docMeta.hospital_address || '',
               phone: docMeta.hospital_phone || '+91 44 2829 0000',
               email: docMeta.hospital_email || '',
+              logo_url: resolvedHospitalLogo,
             },
             branch: {
               name: docMeta.branch_name || '',
@@ -1416,7 +1423,13 @@ export class PrescriptionsService {
         docMeta.branch_name
       );
 
-      const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate();
+      const activeTemplate = await PrescriptionTemplatesService.getActiveTemplate(docMeta.hospital_id, docMeta.branch_id);
+
+      const headerSection = (activeTemplate.layout_config?.sections || []).find(
+        (s: any) => s.id === 'sec_header' || s.type === 'HEADER_LETTERHEAD'
+      );
+      const templateCustomLogo = headerSection?.props?.customLogoUrl || null;
+      const resolvedHospitalLogo = templateCustomLogo || docMeta.hospital_logo || null;
 
       const dataContext = {
         hospital: {
@@ -1424,6 +1437,7 @@ export class PrescriptionsService {
           address: docMeta.hospital_address || '',
           phone: docMeta.hospital_phone || '+91 44 2829 0000',
           email: docMeta.hospital_email || '',
+          logo_url: resolvedHospitalLogo,
         },
         branch: {
           name: docMeta.branch_name || '',
@@ -1484,7 +1498,8 @@ export class PrescriptionsService {
         },
       };
 
-      return PrescriptionTemplatesService.resolveTemplate(activeTemplate.html_content, dataContext);
+      const resolvedHtml = PrescriptionTemplatesService.resolveTemplate(activeTemplate.html_content, dataContext);
+      return await PrescriptionTemplatesService.inlineImagesForPdf(resolvedHtml);
     } finally {
       client.release();
     }

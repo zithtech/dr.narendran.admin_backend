@@ -199,6 +199,12 @@ export const AVAILABLE_MODULES: ModuleDefinition[] = [
     description: 'Manage doctor inquiries, clinical support tickets, and communication',
   },
   {
+    slug: 'CHAT',
+    name: 'Chat',
+    category: 'Support & Reviews',
+    description: 'Direct messaging and real-time communication',
+  },
+  {
     slug: 'SUPPORT',
     name: 'General Support',
     category: 'Support & Reviews',
@@ -302,6 +308,7 @@ const DOCTOR_DEFAULT_PERMISSIONS: PermissionInput[] = [
   { module_slug: 'MEDICINE_PACKAGES', can_read: true, can_create: false, can_update: false, can_write: false, can_delete: false, can_manage: false },
   { module_slug: 'REVIEWS', can_read: true, can_create: false, can_update: false, can_write: false, can_delete: false, can_manage: false },
   { module_slug: 'DOCTOR_SUPPORT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
+  { module_slug: 'CHAT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
   { module_slug: 'SUPPORT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
   { module_slug: 'CHAT', can_read: true, can_create: true, can_update: true, can_write: true, can_delete: false, can_manage: false },
 ];
@@ -562,7 +569,7 @@ export const rbacService = {
           };
         }
         if (upper === 'PATIENT') {
-          const patientSlugs = ['PATIENTS', 'APPOINTMENTS', 'PRESCRIPTIONS', 'PATIENT_SUPPORT', 'SUPPORT'];
+          const patientSlugs = ['PATIENTS', 'APPOINTMENTS', 'PRESCRIPTIONS', 'PATIENT_SUPPORT', 'SUPPORT', 'CHAT'];
           const permissions = patientSlugs.map((slug) =>
             normalizePermissionRow({
               module_slug: slug,
@@ -695,6 +702,7 @@ export const rbacService = {
       'PRESCRIPTIONS',
       'LOCATIONS',
       'DOCTOR_SUPPORT',
+      'CHAT',
       'SUPPORT',
       'REVIEWS',
       'CHAT',

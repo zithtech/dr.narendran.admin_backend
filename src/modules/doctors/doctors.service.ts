@@ -60,8 +60,22 @@ export interface DoctorHospitalInfo {
   branches: DoctorBranchInfo[];
 }
 
+export interface HospitalDoctorSettingsResponse {
+  hospitals: Array<{ id: string; name: string }>;
+  selected_hospital_id: string;
+  hospital_name: string;
+  prefix: string;
+  numeric_length: number;
+  next_sequence: number;
+  doctor_count: number;
+  is_locked: boolean;
+  preview_code: string;
+  message: string | null;
+}
+
 export interface FormattedDoctorInfo {
   id: string;
+  doctor_code?: string | null;
   name: string;
   specialty: string;
   clinic: string;
@@ -146,6 +160,7 @@ export function formatDoctorInfo(row: any, hospitals: DoctorHospitalInfo[] = [])
 
   return {
     id: row.id,
+    doctor_code: row.doctor_code || null,
     name,
     specialty: spec,
     clinic: clinicName,
@@ -191,6 +206,17 @@ async function ensureDoctorColumns(client: any): Promise<void> {
   if (columnsEnsured) return;
   try {
     await client.query(`
+      CREATE TABLE IF NOT EXISTS hospital_doctor_settings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        hospital_id UUID NOT NULL REFERENCES hospitals(id) ON DELETE CASCADE,
+        prefix VARCHAR(3) NOT NULL DEFAULT 'DOC',
+        next_sequence INTEGER NOT NULL DEFAULT 1,
+        numeric_length INTEGER NOT NULL DEFAULT 6,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_hospital_doctor_settings_hospital UNIQUE (hospital_id)
+      );
+
       ALTER TABLE doctors 
         ADD COLUMN IF NOT EXISTS address_line_1 VARCHAR(255),
         ADD COLUMN IF NOT EXISTS address_line_2 VARCHAR(255),
@@ -199,11 +225,14 @@ async function ensureDoctorColumns(client: any): Promise<void> {
         ADD COLUMN IF NOT EXISTS pincode VARCHAR(20),
         ADD COLUMN IF NOT EXISTS profile_image_url TEXT,
         ADD COLUMN IF NOT EXISTS podcast_url TEXT,
-        ADD COLUMN IF NOT EXISTS gender VARCHAR(20);
+        ADD COLUMN IF NOT EXISTS gender VARCHAR(20),
+        ADD COLUMN IF NOT EXISTS doctor_code VARCHAR(50);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_doctors_doctor_code ON doctors(doctor_code);
     `);
     columnsEnsured = true;
   } catch (err) {
-    console.error('Failed to ensure doctor address columns:', err);
+    console.error('Failed to ensure doctor address columns and settings:', err);
   }
 }
 
@@ -269,6 +298,7 @@ export class DoctorsService {
       let query = `
         SELECT 
           d.id,
+          d.doctor_code,
           d.name,
           d.phone,
           d.email,
@@ -332,7 +362,7 @@ export class DoctorsService {
 
       if (filters?.search && filters.search.trim().length > 0) {
         params.push(`%${filters.search.trim().toLowerCase()}%`);
-        query += ` AND (LOWER(d.name) LIKE $${params.length} OR LOWER(COALESCE(NULLIF(d.specialization, ''), 'General Medicine')) LIKE $${params.length} OR LOWER(COALESCE(h.name, '')) LIKE $${params.length})`;
+        query += ` AND (LOWER(d.name) LIKE $${params.length} OR LOWER(COALESCE(d.doctor_code, '')) LIKE $${params.length} OR LOWER(COALESCE(NULLIF(d.specialization, ''), 'General Medicine')) LIKE $${params.length} OR LOWER(COALESCE(h.name, '')) LIKE $${params.length})`;
       }
 
       if (filters?.clinic && filters.clinic.trim().length > 0) {
@@ -364,6 +394,7 @@ export class DoctorsService {
       const { rows } = await client.query(`
         SELECT 
           d.id,
+          d.doctor_code,
           d.name,
           d.phone,
           d.email,
@@ -436,10 +467,181 @@ export class DoctorsService {
     }
   }
 
+  async getDoctorSettings(requestedHospitalId?: string): Promise<HospitalDoctorSettingsResponse> {
+    const client = await pool.connect();
+    try {
+      await ensureDoctorColumns(client);
+
+      const hospitalsRes = await client.query(`
+        SELECT id, name FROM hospitals ORDER BY created_at ASC
+      `);
+      const hospitalsList: Array<{ id: string; name: string }> = hospitalsRes.rows;
+
+      if (hospitalsList.length === 0) {
+        return {
+          hospitals: [],
+          selected_hospital_id: '',
+          hospital_name: 'Default Hospital',
+          prefix: 'DOC',
+          numeric_length: 6,
+          next_sequence: 1,
+          doctor_count: 0,
+          is_locked: false,
+          preview_code: 'DOC000001',
+          message: null,
+        };
+      }
+
+      let activeHospital = hospitalsList.find((h) => h.id === requestedHospitalId);
+      if (!activeHospital) {
+        activeHospital = hospitalsList[0]!;
+      }
+      const targetHospitalId = activeHospital.id;
+
+      await client.query(`
+        INSERT INTO hospital_doctor_settings (hospital_id, prefix, next_sequence, numeric_length)
+        VALUES ($1, 'DOC', 1, 6)
+        ON CONFLICT (hospital_id) DO NOTHING;
+      `, [targetHospitalId]);
+
+      const settingsRes = await client.query(`
+        SELECT prefix, next_sequence, numeric_length
+        FROM hospital_doctor_settings
+        WHERE hospital_id = $1
+      `, [targetHospitalId]);
+
+      const setting = settingsRes.rows[0] || { prefix: 'DOC', next_sequence: 1, numeric_length: 6 };
+
+      const countRes = await client.query(`
+        SELECT COUNT(*)::int AS count
+        FROM doctors
+        WHERE hospital_id = $1
+      `, [targetHospitalId]);
+
+      const doctorCount = Number(countRes.rows[0]?.count || 0);
+      const isLocked = doctorCount > 0;
+      const prefix = (setting.prefix || 'DOC').toUpperCase();
+      const numLength = Number(setting.numeric_length) || 6;
+      const nextSequence = Number(setting.next_sequence) || 1;
+
+      const previewSequence = isLocked ? nextSequence : 1;
+      const previewCode = `${prefix}${String(previewSequence).padStart(numLength, '0')}`;
+
+      const message = isLocked
+        ? 'Doctor records already exist. The Doctor Code prefix cannot be changed because it may affect existing doctor identification and references.'
+        : null;
+
+      return {
+        hospitals: hospitalsList,
+        selected_hospital_id: targetHospitalId,
+        hospital_name: activeHospital.name,
+        prefix,
+        numeric_length: numLength,
+        next_sequence: nextSequence,
+        doctor_count: doctorCount,
+        is_locked: isLocked,
+        preview_code: previewCode,
+        message,
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateDoctorSettings(hospitalId: string, prefix: string): Promise<HospitalDoctorSettingsResponse> {
+    const cleanPrefix = (prefix || '').trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(cleanPrefix)) {
+      throw new Error('Doctor Code prefix must contain exactly three alphabetic characters');
+    }
+
+    const client = await pool.connect();
+    try {
+      await ensureDoctorColumns(client);
+
+      const countRes = await client.query(`
+        SELECT COUNT(*)::int AS count
+        FROM doctors
+        WHERE hospital_id = $1
+      `, [hospitalId]);
+
+      const doctorCount = Number(countRes.rows[0]?.count || 0);
+      if (doctorCount > 0) {
+        throw new Error(
+          'Doctor records already exist. The Doctor Code prefix cannot be changed because it may affect existing doctor identification and references.',
+        );
+      }
+
+      await client.query(`
+        INSERT INTO hospital_doctor_settings (hospital_id, prefix, next_sequence, numeric_length, updated_at)
+        VALUES ($1, $2, 1, 6, NOW())
+        ON CONFLICT (hospital_id)
+        DO UPDATE SET prefix = $2, updated_at = NOW()
+      `, [hospitalId, cleanPrefix]);
+
+      return await this.getDoctorSettings(hospitalId);
+    } finally {
+      client.release();
+    }
+  }
+
   async createDoctor(data: CreateDoctorInput) {
     const client = await pool.connect();
     try {
       await ensureDoctorColumns(client);
+      await client.query('BEGIN');
+
+      let targetHospitalId = data.hospital_id;
+      if (!targetHospitalId) {
+        const defHosp = await client.query(`SELECT id FROM hospitals ORDER BY created_at ASC LIMIT 1`);
+        targetHospitalId = defHosp.rows[0]?.id;
+      }
+
+      if (!targetHospitalId) {
+        throw new Error('A valid hospital assignment is required to generate a doctor code.');
+      }
+
+      await client.query(`
+        INSERT INTO hospital_doctor_settings (hospital_id, prefix, next_sequence, numeric_length)
+        VALUES ($1, 'DOC', 1, 6)
+        ON CONFLICT (hospital_id) DO NOTHING;
+      `, [targetHospitalId]);
+
+      const settingsRes = await client.query(`
+        SELECT prefix, next_sequence, numeric_length
+        FROM hospital_doctor_settings
+        WHERE hospital_id = $1
+        FOR UPDATE;
+      `, [targetHospitalId]);
+
+      const setting = settingsRes.rows[0] || { prefix: 'DOC', next_sequence: 1, numeric_length: 6 };
+      const prefix = (setting.prefix || 'DOC').toUpperCase();
+      const numLength = Number(setting.numeric_length) || 6;
+      let seq = Number(setting.next_sequence) || 1;
+
+      if (seq > 999999) {
+        throw new Error('Doctor code sequence exhausted: maximum 999999 reached for this hospital.');
+      }
+
+      let generatedCode = `${prefix}${String(seq).padStart(numLength, '0')}`;
+
+      while (true) {
+        const conflictCheck = await client.query(`
+          SELECT 1 FROM doctors 
+          WHERE doctor_code = $1 
+          LIMIT 1
+        `, [generatedCode]);
+
+        if (conflictCheck.rowCount === 0) {
+          break;
+        }
+
+        seq++;
+        if (seq > 999999) {
+          throw new Error('Doctor code sequence exhausted: maximum 999999 reached for this hospital.');
+        }
+        generatedCode = `${prefix}${String(seq).padStart(numLength, '0')}`;
+      }
+
       const clinicAddress =
         data.clinic_address ||
         [data.address_line_1, data.address_line_2, data.city, data.state, data.pincode]
@@ -452,12 +654,14 @@ export class DoctorsService {
           user_account_id, hospital_id, branch_id, name, phone, email, specialization, status, 
           qualification, medical_registration_number, clinic_address, 
           address_line_1, address_line_2, city, state, pincode,
-          years_of_experience, is_active, profile_image_url, podcast_url, gender, created_at, updated_at
+          years_of_experience, is_active, profile_image_url, podcast_url, gender,
+          doctor_code,
+          created_at, updated_at
         ) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW()) RETURNING *`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW()) RETURNING *`,
         [
           data.user_account_id || null,
-          data.hospital_id,
+          targetHospitalId,
           data.branch_id || null,
           data.name,
           data.phone || null,
@@ -477,18 +681,32 @@ export class DoctorsService {
           data.profile_image_url || null,
           data.podcast_url || null,
           data.gender || null,
+          generatedCode,
         ],
       );
-      if (rows[0]?.profile_image_url) {
-        rows[0].profile_image_url = await signProfileUrl(rows[0].profile_image_url);
-      }
+
+      await client.query(`
+        UPDATE hospital_doctor_settings
+        SET next_sequence = $1, updated_at = NOW()
+        WHERE hospital_id = $2
+      `, [seq + 1, targetHospitalId]);
+
       if (rows[0]?.hospital_id && rows[0]?.branch_id) {
         await client.query(
           `INSERT INTO doctor_hospital_branch (doctor_id, hospital_id, branch_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
           [rows[0].id, rows[0].hospital_id, rows[0].branch_id]
         );
       }
+
+      await client.query('COMMIT');
+
+      if (rows[0]?.profile_image_url) {
+        rows[0].profile_image_url = await signProfileUrl(rows[0].profile_image_url);
+      }
       return rows[0];
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
     } finally {
       client.release();
     }

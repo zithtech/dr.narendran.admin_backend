@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { pool } from '@/db/pool.js';
 import { logger } from '@/lib/logger.js';
 
-import { doctorSchema } from './doctors.schema.js';
+import { doctorSchema, doctorSettingsUpdateSchema } from './doctors.schema.js';
 import { doctorsService, signProfileUrl } from './doctors.service.js';
 
 export const CURRENT_TERMS_VERSION = 'v1.0';
@@ -775,6 +775,32 @@ export const DoctorsController = {
       res.json({ status: 'success', data: doctor });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to fetch doctor details' });
+    }
+  },
+
+  async getSettings(req: Request, res: Response) {
+    try {
+      const hospitalIdParam = req.query['hospital_id'];
+      const hospitalId = typeof hospitalIdParam === 'string' && hospitalIdParam.trim() ? hospitalIdParam.trim() : undefined;
+      const settings = await doctorsService.getDoctorSettings(hospitalId);
+      res.json(settings);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Failed to fetch doctor settings' });
+    }
+  },
+
+  async updateSettings(req: Request, res: Response) {
+    try {
+      const parsed = doctorSettingsUpdateSchema.parse(req.body);
+      const settings = await doctorsService.updateDoctorSettings(parsed.hospital_id, parsed.prefix);
+      res.json(settings);
+    } catch (err: unknown) {
+      if (err instanceof z.ZodError) {
+        res.status(400).json({ error: (err as any).issues[0]?.message || 'Invalid input data' });
+        return;
+      }
+      const message = (err as any)?.message || 'Failed to update doctor settings';
+      res.status(400).json({ error: message });
     }
   },
 

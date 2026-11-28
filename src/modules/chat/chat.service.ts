@@ -835,6 +835,20 @@ export class ChatService {
         }
         return {
           ...msg,
+          conversation_id: msg.conversation_id,
+          conversationId: msg.conversation_id,
+          sender_id: msg.sender_id,
+          senderId: msg.sender_id,
+          sender_type: msg.sender_type,
+          senderType: msg.sender_type,
+          sender_role: (msg as any).sender_role || (msg as any).senderRole || ((msg.sender_type === 'PATIENT') ? 'patient' : 'doctor'),
+          senderRole: (msg as any).sender_role || (msg as any).senderRole || ((msg.sender_type === 'PATIENT') ? 'patient' : 'doctor'),
+          sender_name: (msg as any).sender_name || (msg as any).senderName || null,
+          senderName: (msg as any).sender_name || (msg as any).senderName || null,
+          recipient_id: (msg as any).recipient_id || (msg as any).recipientId || null,
+          recipientId: (msg as any).recipient_id || (msg as any).recipientId || null,
+          recipient_role: (msg as any).recipient_role || (msg as any).recipientRole || ((msg.sender_type === 'PATIENT') ? 'doctor' : 'patient'),
+          recipientRole: (msg as any).recipient_role || (msg as any).recipientRole || ((msg.sender_type === 'PATIENT') ? 'doctor' : 'patient'),
           attachment_url: attachmentUrl,
           attachmentUrl,
           attachment_name: msg.attachment_name || null,
@@ -890,6 +904,20 @@ export class ChatService {
         }
         return {
           ...msg,
+          conversation_id: msg.conversation_id,
+          conversationId: msg.conversation_id,
+          sender_id: msg.sender_id,
+          senderId: msg.sender_id,
+          sender_type: msg.sender_type,
+          senderType: msg.sender_type,
+          sender_role: (msg as any).sender_role || (msg as any).senderRole || ((msg.sender_type === 'PATIENT') ? 'patient' : 'doctor'),
+          senderRole: (msg as any).sender_role || (msg as any).senderRole || ((msg.sender_type === 'PATIENT') ? 'patient' : 'doctor'),
+          sender_name: (msg as any).sender_name || (msg as any).senderName || null,
+          senderName: (msg as any).sender_name || (msg as any).senderName || null,
+          recipient_id: (msg as any).recipient_id || (msg as any).recipientId || null,
+          recipientId: (msg as any).recipient_id || (msg as any).recipientId || null,
+          recipient_role: (msg as any).recipient_role || (msg as any).recipientRole || ((msg.sender_type === 'PATIENT') ? 'doctor' : 'patient'),
+          recipientRole: (msg as any).recipient_role || (msg as any).recipientRole || ((msg.sender_type === 'PATIENT') ? 'doctor' : 'patient'),
           attachment_url: attachmentUrl,
           attachmentUrl,
           attachment_name: msg.attachment_name || null,
@@ -924,6 +952,7 @@ export class ChatService {
     },
     caption?: string,
     replyToMessageId?: string | null,
+    duration?: number | null,
   ): Promise<ChatMessage> {
     const { conversation, senderType } = await this.authorizeConversation(
       conversationId,
@@ -938,17 +967,59 @@ export class ChatService {
       'image/gif',
       'image/jpg',
       'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'text/plain',
+      'audio/webm',
+      'audio/ogg',
+      'audio/mp4',
+      'audio/mpeg',
+      'audio/mp3',
+      'audio/wav',
+      'audio/x-m4a',
+      'audio/aac',
+    ];
+
+    const ext = (file.fileName.toLowerCase().split('.').pop() || '').trim();
+    const allowedExts = [
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+      'pdf',
+      'doc',
+      'docx',
+      'xls',
+      'xlsx',
+      'csv',
+      'txt',
+      'webm',
+      'ogg',
+      'mp3',
+      'wav',
+      'm4a',
+      'aac',
+      'mp4',
     ];
 
     const normalizedMime = (file.mimeType || '').toLowerCase();
+    const isAudio =
+      normalizedMime.startsWith('audio/') ||
+      ['webm', 'ogg', 'mp3', 'wav', 'm4a', 'aac'].includes(ext);
+
     const isAllowed =
       allowedMimes.includes(normalizedMime) ||
       normalizedMime.startsWith('image/') ||
-      file.fileName.toLowerCase().endsWith('.pdf');
+      isAudio ||
+      allowedExts.includes(ext);
 
     if (!isAllowed) {
       throw new ValidationError(
-        'Invalid file type. Only JPG, PNG, WEBP, and PDF files are allowed.',
+        'Invalid file type. Only images (JPG, PNG, WEBP), documents (PDF, DOC, DOCX), spreadsheets (XLS, XLSX, CSV), and voice notes (WEBM, MP3, WAV, OGG, M4A) are allowed.',
       );
     }
 
@@ -959,16 +1030,42 @@ export class ChatService {
 
     const safeFileName = file.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const storageKey = `chat/${conversationId}/${Date.now()}_${safeFileName}`;
-    const contentType =
-      normalizedMime.includes('pdf') || file.fileName.toLowerCase().endsWith('.pdf')
-        ? 'application/pdf'
-        : normalizedMime || 'image/jpeg';
+    let contentType = normalizedMime;
+    if (!contentType || contentType === 'application/octet-stream') {
+      if (ext === 'pdf') contentType = 'application/pdf';
+      else if (ext === 'doc') contentType = 'application/msword';
+      else if (ext === 'docx') contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      else if (ext === 'xls') contentType = 'application/vnd.ms-excel';
+      else if (ext === 'xlsx') contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      else if (ext === 'csv') contentType = 'text/csv';
+      else if (ext === 'png') contentType = 'image/png';
+      else if (ext === 'webp') contentType = 'image/webp';
+      else if (ext === 'jpg' || ext === 'jpeg') contentType = 'image/jpeg';
+      else if (ext === 'webm') contentType = 'audio/webm';
+      else if (ext === 'ogg') contentType = 'audio/ogg';
+      else if (ext === 'mp3') contentType = 'audio/mpeg';
+      else if (ext === 'wav') contentType = 'audio/wav';
+      else if (ext === 'm4a') contentType = 'audio/x-m4a';
+      else if (ext === 'aac') contentType = 'audio/aac';
+      else contentType = 'application/octet-stream';
+    }
 
     await s3Service.uploadBuffer(storageKey, file.buffer, contentType);
     const signedUrl = await s3Service.getReadUrl(storageKey, 86400);
 
-    const messageType = contentType === 'application/pdf' ? 'PDF' : 'IMAGE';
-    const messageText = caption && caption.trim().length > 0 ? caption.trim() : file.fileName;
+    let messageType = 'DOCUMENT';
+    if (isAudio) {
+      messageType = 'VOICE';
+    } else if (normalizedMime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+      messageType = 'IMAGE';
+    } else if (normalizedMime.includes('pdf') || ext === 'pdf') {
+      messageType = 'PDF';
+    } else if (['xls', 'xlsx', 'csv'].includes(ext) || normalizedMime.includes('excel') || normalizedMime.includes('spreadsheet') || normalizedMime.includes('csv')) {
+      messageType = 'SPREADSHEET';
+    }
+
+    const defaultText = messageType === 'VOICE' ? 'Voice message' : file.fileName;
+    const messageText = caption && caption.trim().length > 0 ? caption.trim() : defaultText;
 
     const savedMessage = await chatRepo.saveMessage(
       conversationId,
@@ -982,6 +1079,7 @@ export class ChatService {
         attachmentType: contentType,
         attachmentSize: file.fileSize,
         storageKey,
+        duration: duration ? Number(duration) : null,
       },
       ...(replyToMessageId ? [replyToMessageId] : []),
     );
@@ -1037,6 +1135,7 @@ export class ChatService {
       attachmentSize: file.fileSize,
       storage_key: storageKey,
       storageKey: storageKey,
+      duration: savedMessage.duration ?? (duration ? Number(duration) : undefined),
       reply_to_message_id: savedMessage.reply_to_message_id || null,
       replyToMessageId: savedMessage.reply_to_message_id || null,
       reply_to: savedMessage.reply_to || null,

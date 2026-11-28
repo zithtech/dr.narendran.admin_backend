@@ -52,6 +52,7 @@ export async function ensureChatTables(): Promise<void> {
         ADD COLUMN IF NOT EXISTS attachment_type VARCHAR(64),
         ADD COLUMN IF NOT EXISTS attachment_size BIGINT,
         ADD COLUMN IF NOT EXISTS storage_key TEXT,
+        ADD COLUMN IF NOT EXISTS duration NUMERIC,
         ADD COLUMN IF NOT EXISTS reply_to_message_id UUID REFERENCES chat_messages(id) ON DELETE SET NULL,
         ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE,
         ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
@@ -333,6 +334,7 @@ export async function saveMessage(
     attachmentType?: string | null;
     attachmentSize?: number | null;
     storageKey?: string | null;
+    duration?: number | null;
   },
   replyToMessageId?: string | null,
 ): Promise<ChatMessage> {
@@ -390,9 +392,9 @@ export async function saveMessage(
       `INSERT INTO chat_messages (
          conversation_id, sender_id, sender_type, message_type, message, status,
          attachment_url, attachment_name, attachment_type, attachment_size, storage_key,
-         reply_to_message_id, sent_at, created_at, updated_at
+         duration, reply_to_message_id, sent_at, created_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, 'SENT', $6, $7, $8, $9, $10, $11, NOW(), NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, 'SENT', $6, $7, $8, $9, $10, $11, $12, NOW(), NOW(), NOW())
        RETURNING *`,
       [
         conversationId,
@@ -405,6 +407,7 @@ export async function saveMessage(
         attachmentData?.attachmentType ?? null,
         attachmentData?.attachmentSize ?? null,
         attachmentData?.storageKey ?? null,
+        attachmentData?.duration ?? null,
         validatedReplyToId,
       ],
     );
@@ -524,6 +527,18 @@ export async function getMessagesByConversation(
     let query = `
       SELECT 
         m.*,
+        COALESCE(sm_p.name, sm_pp.full_name, sm_d.name, sm_dp.full_name, sm_au.name, sm_au.username, sm_ua.username, m.sender_type) as sender_name,
+        COALESCE(sm_au.role, sm_ua.role, CASE WHEN sm_d.id IS NOT NULL THEN 'DOCTOR' WHEN sm_p.id IS NOT NULL THEN 'PATIENT' ELSE m.sender_type END) as sender_role,
+        CASE 
+          WHEN m.sender_id = c.patient_id THEN c.doctor_id 
+          WHEN m.sender_id = c.doctor_id THEN c.patient_id 
+          WHEN m.sender_type = 'PATIENT' THEN c.doctor_id 
+          ELSE c.patient_id 
+        END as recipient_id,
+        CASE 
+          WHEN (CASE WHEN m.sender_id = c.patient_id THEN c.doctor_id WHEN m.sender_id = c.doctor_id THEN c.patient_id WHEN m.sender_type = 'PATIENT' THEN c.doctor_id ELSE c.patient_id END) = c.doctor_id THEN 'DOCTOR' 
+          ELSE 'PATIENT' 
+        END as recipient_role,
         parent_m.id as parent_id,
         parent_m.sender_type as parent_sender_type,
         parent_m.sender_id as parent_sender_id,
@@ -532,13 +547,22 @@ export async function getMessagesByConversation(
         parent_m.attachment_url as parent_attachment_url,
         parent_m.attachment_name as parent_attachment_name,
         parent_m.attachment_type as parent_attachment_type,
-        COALESCE(p.name, pp.full_name, d.name, dp.full_name) as parent_sender_name
+        COALESCE(p.name, pp.full_name, d.name, dp.full_name, parent_au.name, parent_au.username, parent_ua.username) as parent_sender_name
       FROM chat_messages m
+      LEFT JOIN chat_conversations c ON m.conversation_id = c.id
       LEFT JOIN chat_messages parent_m ON m.reply_to_message_id = parent_m.id
       LEFT JOIN patients p ON (parent_m.sender_id = p.id OR parent_m.sender_id = p.user_account_id)
       LEFT JOIN patient_profiles pp ON (p.user_account_id IS NOT NULL AND pp.user_id = p.user_account_id) OR (parent_m.sender_id = pp.user_id)
       LEFT JOIN doctors d ON (parent_m.sender_id = d.id OR parent_m.sender_id = d.user_account_id)
       LEFT JOIN doctor_profiles dp ON (d.user_account_id IS NOT NULL AND dp.user_id = d.user_account_id) OR (parent_m.sender_id = dp.user_id)
+      LEFT JOIN admin_users parent_au ON (parent_m.sender_id = parent_au.id)
+      LEFT JOIN user_accounts parent_ua ON (parent_m.sender_id = parent_ua.id)
+      LEFT JOIN patients sm_p ON (m.sender_id = sm_p.id OR m.sender_id = sm_p.user_account_id)
+      LEFT JOIN patient_profiles sm_pp ON (sm_p.user_account_id IS NOT NULL AND sm_pp.user_id = sm_p.user_account_id) OR (m.sender_id = sm_pp.user_id)
+      LEFT JOIN doctors sm_d ON (m.sender_id = sm_d.id OR m.sender_id = sm_d.user_account_id)
+      LEFT JOIN doctor_profiles sm_dp ON (sm_d.user_account_id IS NOT NULL AND sm_dp.user_id = sm_d.user_account_id) OR (m.sender_id = sm_dp.user_id)
+      LEFT JOIN admin_users sm_au ON (m.sender_id = sm_au.id)
+      LEFT JOIN user_accounts sm_ua ON (m.sender_id = sm_ua.id)
       WHERE m.conversation_id = $1
     `;
     const params: any[] = [conversationId];
@@ -587,6 +611,20 @@ export async function getMessagesByConversation(
       }
       return {
         ...r,
+        sender_id: r.sender_id,
+        senderId: r.sender_id,
+        sender_type: r.sender_type,
+        senderType: r.sender_type,
+        sender_role: r.sender_role || (r.sender_type === 'PATIENT' ? 'patient' : 'doctor'),
+        senderRole: r.sender_role || (r.sender_type === 'PATIENT' ? 'patient' : 'doctor'),
+        sender_name: r.sender_name || (r.sender_type === 'DOCTOR' ? 'Doctor' : 'Patient'),
+        senderName: r.sender_name || (r.sender_type === 'DOCTOR' ? 'Doctor' : 'Patient'),
+        recipient_id: r.recipient_id || null,
+        recipientId: r.recipient_id || null,
+        recipient_role: r.recipient_role || (r.sender_type === 'PATIENT' ? 'doctor' : 'patient'),
+        recipientRole: r.recipient_role || (r.sender_type === 'PATIENT' ? 'doctor' : 'patient'),
+        conversation_id: r.conversation_id,
+        conversationId: r.conversation_id,
         is_deleted: Boolean(r.is_deleted),
         isDeleted: Boolean(r.is_deleted),
         deleted_at: r.deleted_at || null,
@@ -619,7 +657,18 @@ export async function searchMessagesInConversation(
     const sql = `
       SELECT 
         m.*,
-        COALESCE(p.name, pp.full_name, d.name, dp.full_name) as sender_name,
+        COALESCE(sm_p.name, sm_pp.full_name, sm_d.name, sm_dp.full_name, sm_au.name, sm_au.username, sm_ua.username, m.sender_type) as sender_name,
+        COALESCE(sm_au.role, sm_ua.role, CASE WHEN sm_d.id IS NOT NULL THEN 'DOCTOR' WHEN sm_p.id IS NOT NULL THEN 'PATIENT' ELSE m.sender_type END) as sender_role,
+        CASE 
+          WHEN m.sender_id = c.patient_id THEN c.doctor_id 
+          WHEN m.sender_id = c.doctor_id THEN c.patient_id 
+          WHEN m.sender_type = 'PATIENT' THEN c.doctor_id 
+          ELSE c.patient_id 
+        END as recipient_id,
+        CASE 
+          WHEN (CASE WHEN m.sender_id = c.patient_id THEN c.doctor_id WHEN m.sender_id = c.doctor_id THEN c.patient_id WHEN m.sender_type = 'PATIENT' THEN c.doctor_id ELSE c.patient_id END) = c.doctor_id THEN 'DOCTOR' 
+          ELSE 'PATIENT' 
+        END as recipient_role,
         parent_m.id as parent_id,
         parent_m.sender_type as parent_sender_type,
         parent_m.sender_id as parent_sender_id,
@@ -628,8 +677,9 @@ export async function searchMessagesInConversation(
         parent_m.attachment_url as parent_attachment_url,
         parent_m.attachment_name as parent_attachment_name,
         parent_m.attachment_type as parent_attachment_type,
-        COALESCE(parent_p.name, parent_pp.full_name, parent_d.name, parent_dp.full_name) as parent_sender_name
+        COALESCE(parent_p.name, parent_pp.full_name, parent_d.name, parent_dp.full_name, parent_au.name, parent_au.username, parent_ua.username) as parent_sender_name
       FROM chat_messages m
+      LEFT JOIN chat_conversations c ON m.conversation_id = c.id
       LEFT JOIN patients p ON (m.sender_id = p.id OR m.sender_id = p.user_account_id)
       LEFT JOIN patient_profiles pp ON (p.user_account_id IS NOT NULL AND pp.user_id = p.user_account_id) OR (m.sender_id = pp.user_id)
       LEFT JOIN doctors d ON (m.sender_id = d.id OR m.sender_id = d.user_account_id)
@@ -639,6 +689,14 @@ export async function searchMessagesInConversation(
       LEFT JOIN patient_profiles parent_pp ON (parent_p.user_account_id IS NOT NULL AND parent_pp.user_id = parent_p.user_account_id) OR (parent_m.sender_id = parent_pp.user_id)
       LEFT JOIN doctors parent_d ON (parent_m.sender_id = parent_d.id OR parent_m.sender_id = parent_d.user_account_id)
       LEFT JOIN doctor_profiles parent_dp ON (parent_d.user_account_id IS NOT NULL AND parent_dp.user_id = parent_d.user_account_id) OR (parent_m.sender_id = parent_dp.user_id)
+      LEFT JOIN admin_users parent_au ON (parent_m.sender_id = parent_au.id)
+      LEFT JOIN user_accounts parent_ua ON (parent_m.sender_id = parent_ua.id)
+      LEFT JOIN patients sm_p ON (m.sender_id = sm_p.id OR m.sender_id = sm_p.user_account_id)
+      LEFT JOIN patient_profiles sm_pp ON (sm_p.user_account_id IS NOT NULL AND sm_pp.user_id = sm_p.user_account_id) OR (m.sender_id = sm_pp.user_id)
+      LEFT JOIN doctors sm_d ON (m.sender_id = sm_d.id OR m.sender_id = sm_d.user_account_id)
+      LEFT JOIN doctor_profiles sm_dp ON (sm_d.user_account_id IS NOT NULL AND sm_dp.user_id = sm_d.user_account_id) OR (m.sender_id = sm_dp.user_id)
+      LEFT JOIN admin_users sm_au ON (m.sender_id = sm_au.id)
+      LEFT JOIN user_accounts sm_ua ON (m.sender_id = sm_ua.id)
       WHERE m.conversation_id = $1
         AND (m.is_deleted IS NOT TRUE)
         AND (
@@ -692,12 +750,24 @@ export async function searchMessagesInConversation(
 
       return {
         ...r,
+        sender_id: r.sender_id,
+        senderId: r.sender_id,
+        sender_type: r.sender_type,
+        senderType: r.sender_type,
+        sender_role: r.sender_role || (r.sender_type === 'PATIENT' ? 'patient' : 'doctor'),
+        senderRole: r.sender_role || (r.sender_type === 'PATIENT' ? 'patient' : 'doctor'),
+        sender_name: r.sender_name || (r.sender_type === 'DOCTOR' ? 'Doctor' : 'Patient'),
+        senderName: r.sender_name || (r.sender_type === 'DOCTOR' ? 'Doctor' : 'Patient'),
+        recipient_id: r.recipient_id || null,
+        recipientId: r.recipient_id || null,
+        recipient_role: r.recipient_role || (r.sender_type === 'PATIENT' ? 'doctor' : 'patient'),
+        recipientRole: r.recipient_role || (r.sender_type === 'PATIENT' ? 'doctor' : 'patient'),
+        conversation_id: r.conversation_id,
+        conversationId: r.conversation_id,
         is_deleted: Boolean(r.is_deleted),
         isDeleted: Boolean(r.is_deleted),
         deleted_at: r.deleted_at || null,
         deletedAt: r.deleted_at || null,
-        sender_name: r.sender_name || (r.sender_type === 'DOCTOR' ? 'Doctor' : 'Patient'),
-        senderName: r.sender_name || (r.sender_type === 'DOCTOR' ? 'Doctor' : 'Patient'),
         reply_to_message_id: r.reply_to_message_id || null,
         replyToMessageId: r.reply_to_message_id || null,
         reply_to: replyToPreview,

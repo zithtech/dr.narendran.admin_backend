@@ -261,6 +261,9 @@ export class ChatController {
 
       const caption = (req.body?.caption || req.body?.message) as string | undefined;
       const replyToMessageId = (req.body?.reply_to_message_id || req.body?.replyToMessageId) as string | undefined;
+      const duration = req.body?.duration !== undefined && req.body?.duration !== null && !isNaN(Number(req.body.duration))
+        ? Number(req.body.duration)
+        : undefined;
 
       const message = await chatService.uploadAttachment(
         conversationId,
@@ -274,6 +277,7 @@ export class ChatController {
         },
         caption,
         replyToMessageId,
+        duration,
       );
 
       res.status(201).json({
